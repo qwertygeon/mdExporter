@@ -21,6 +21,9 @@ export function createRenderer(): Renderer {
           format: pdf.format ?? 'A4',
           margin: pdf.margin ?? DEFAULT_MARGIN,
           printBackground: pdf.printBackground ?? true,
+          displayHeaderFooter: pdf.displayHeaderFooter ?? false,
+          ...(pdf.headerTemplate ? { headerTemplate: pdf.headerTemplate } : {}),
+          ...(pdf.footerTemplate ? { footerTemplate: pdf.footerTemplate } : {}),
         });
       } finally {
         await browser.close();
