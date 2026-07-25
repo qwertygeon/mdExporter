@@ -40,13 +40,20 @@ program
   .option('--footer', 'PDF footer with page numbers')
   .action(async (input: string, opts: CliOptions) => {
     const formats: OutputFormat[] = resolveFormats(opts.format);
+    let tocDepth: number | undefined;
+    if (opts.tocDepth !== undefined) {
+      tocDepth = Number(opts.tocDepth);
+      if (!Number.isInteger(tocDepth) || tocDepth < 2) {
+        throw new Error(`invalid --toc-depth "${opts.tocDepth}" (expected an integer ≥ 2)`);
+      }
+    }
     const outputs = await convert({
       input,
       formats,
       theme: opts.theme,
       title: opts.title,
       outDir: opts.outDir,
-      toc: opts.toc ? (opts.tocDepth ? { depth: Number(opts.tocDepth) } : true) : undefined,
+      toc: opts.toc ? (tocDepth !== undefined ? { depth: tocDepth } : true) : undefined,
       cover: opts.cover ? (opts.date ? { date: opts.date } : true) : undefined,
       header: opts.header,
       footer: opts.footer,

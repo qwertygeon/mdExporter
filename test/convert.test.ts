@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { convert } from '../src/convert.js';
+import { tocStage } from '../src/layout.js';
 import type { PdfOptions, Renderer } from '../src/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -116,5 +117,40 @@ describe('document layout (v0.2.0)', () => {
     for (const word of source.match(/[가-힣A-Za-z0-9]+/g) ?? []) {
       expect(docs[0]).toContain(word);
     }
+  });
+});
+
+describe('tocStage 견고화 (리뷰 후속)', () => {
+  const ctx = { title: 't', theme: '', sourcePath: 's.md' };
+
+  it('여는 태그에 속성이 있어도 매칭하고 기존 id 를 재사용', () => {
+    const html = '<h2 id="사전정의">제목</h2><p>x</p>';
+    const out = tocStage(3)(html, ctx);
+    // 기존 id 보존(재작성 안 함) + 그 id 로 목차 링크
+    expect(out).toContain('<h2 id="사전정의">제목</h2>');
+    expect(out).toContain('<a href="#사전정의">제목</a>');
+    // id 중복 부여 없음
+    expect(out.match(/id="/g)?.length).toBe(1);
+  });
+
+  it('id 없는 헤딩엔 slugify id 를 부여하고 기존 속성은 보존', () => {
+    const html = '<h2 class="x">Hello World</h2>';
+    const out = tocStage(3)(html, ctx);
+    expect(out).toContain('<h2 class="x" id="hello-world">Hello World</h2>');
+  });
+
+  it('비숫자 depth 는 기본 3(h2~h3)으로 클램프', () => {
+    const html = '<h2>둘</h2><h3>셋</h3><h4>넷</h4>';
+    const out = tocStage(Number('bad'))(html, ctx);
+    const toc = out.split('</nav>')[0];
+    expect(toc).toContain('>둘<');
+    expect(toc).toContain('>셋<');
+    expect(toc).not.toContain('>넷<'); // h4 는 기본 depth 3 제외
+  });
+
+  it('depth 상한은 h6', () => {
+    const html = '<h6>여섯</h6>';
+    const out = tocStage(99)(html, ctx);
+    expect(out.split('</nav>')[0]).toContain('>여섯<');
   });
 });
