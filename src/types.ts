@@ -4,6 +4,10 @@ export interface PdfOptions {
   format?: string;
   margin?: { top?: string; bottom?: string; left?: string; right?: string };
   printBackground?: boolean;
+  /** 페이지 헤더/푸터 표시 (Playwright) */
+  displayHeaderFooter?: boolean;
+  headerTemplate?: string;
+  footerTemplate?: string;
 }
 
 export interface ConvertOptions {
@@ -19,6 +23,14 @@ export interface ConvertOptions {
   outDir?: string;
   /** PDF 페이지 옵션 */
   pdf?: PdfOptions;
+  /** 자동 목차 생성. true 또는 { depth } (기본 depth 3 = h2~h3) */
+  toc?: boolean | { depth?: number };
+  /** 표지 페이지. true 또는 { date }(표시할 날짜, 미지정 시 날짜 없음) */
+  cover?: boolean | { date?: string };
+  /** PDF 헤더(문서 제목) — PDF 전용 */
+  header?: boolean;
+  /** PDF 푸터(페이지 번호) — PDF 전용 */
+  footer?: boolean;
 }
 
 export type OutputFormat = 'html' | 'pdf';

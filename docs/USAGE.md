@@ -10,6 +10,10 @@ mdExporter 로 Markdown 문서를 HTML·PDF 로 변환하는 방법을 설명한
   - [--theme](#--theme)
   - [--title](#--title)
   - [--out-dir](#--out-dir)
+- [문서 레이아웃 (opt-in)](#문서-레이아웃-opt-in)
+  - [목차 --toc](#목차---toc)
+  - [표지 --cover](#표지---cover)
+  - [헤더/푸터 --header / --footer](#헤더푸터---header----footer)
 - [출력 규칙](#출력-규칙)
 - [PDF 페이지 설정](#pdf-페이지-설정)
 - [내용 불변 원칙](#내용-불변-원칙)
@@ -70,6 +74,44 @@ mdexport report.md --title "월간 보고서"
 
 ```bash
 mdexport report.md -o build/
+```
+
+## 문서 레이아웃 (opt-in)
+
+아래 옵션은 모두 선택이며, 지정하지 않으면 산출물은 이전과 동일하다(기본 동작 불변). 목차·표지·헤더/푸터는 **생성 요소**로만 추가되고 원문 본문 내용은 그대로 보존된다.
+
+### 목차 --toc
+
+`--toc` — 문서 헤딩에서 목차를 만들어 (표지 뒤) 본문 앞에 넣는다. 헤딩에 앵커가 부여되고 목차 항목이 해당 헤딩으로 링크된다.
+
+`--toc-depth <n>` — 목차에 포함할 헤딩 깊이. 기본 3(h2~h3). h1 은 문서 제목으로 간주해 목차에서 제외한다.
+
+```bash
+mdexport 문서.md --toc                 # h2~h3 목차
+mdexport 문서.md --toc --toc-depth 4    # h2~h4
+```
+
+### 표지 --cover
+
+`--cover` — 첫 페이지에 표지(제목)를 넣고 뒤에서 페이지를 나눈다. 제목은 `--title`(없으면 파일명)을 쓴다.
+
+`--date <date>` — 표지에 표시할 날짜. **지정할 때만** 표시된다.
+
+```bash
+mdexport 문서.md --cover --title "월간 보고서" --date 2026-07-24
+```
+
+### 헤더/푸터 --header / --footer
+
+**PDF 전용** — HTML 에는 페이지 개념이 없어 적용되지 않는다.
+
+- `--header` — 페이지 상단에 문서 제목.
+- `--footer` — 페이지 하단에 페이지 번호(`현재 / 전체`).
+
+활성 시 상·하 여백을 자동으로 넉넉히 잡아 헤더/푸터가 본문과 겹치거나 잘리지 않게 한다.
+
+```bash
+mdexport 문서.md -f pdf --header --footer --title "월간 보고서"
 ```
 
 ## 출력 규칙

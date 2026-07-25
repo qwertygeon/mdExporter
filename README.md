@@ -22,6 +22,7 @@ Markdown 문서를 **문구 변경 없이** 시인성 좋은 HTML·PDF 로 변�
 - **HTML/PDF 동일 디자인**: 하나의 테마(CSS)로 두 포맷을 같은 모습으로 산출한다.
 - **교체 가능한 테마**: 내장 기본 테마 대신 `--theme` 로 원하는 CSS 를 주입할 수 있다.
 - **한글 시인성 우선**: 폰트·줄폭·줄간격·표 가독성을 한글 문서 기준으로 조율한 기본 테마.
+- **문서 레이아웃(opt-in)**: 자동 목차·표지 페이지·PDF 헤더/푸터(페이지 번호)를 옵션으로 추가할 수 있다.
 
 ## 요구 사항
 
@@ -69,6 +70,14 @@ mdexport <input.md> [옵션]
 | `-t, --theme <path>` | 사용할 테마 CSS 파일 경로 | 내장 기본 테마 |
 | `--title <title>` | HTML `<title>` 값 | 입력 파일명(확장자 제외) |
 | `-o, --out-dir <dir>` | 출력 디렉터리 | 입력 파일과 같은 폴더 |
+| `--toc` | 자동 목차 생성 | 꺼짐 |
+| `--toc-depth <n>` | 목차 포함 깊이(h2~h{n}) | 3 |
+| `--cover` | 표지 페이지 추가 | 꺼짐 |
+| `--date <date>` | 표지 날짜(지정 시만 표시) | 없음 |
+| `--header` | PDF 헤더(문서 제목) | 꺼짐 |
+| `--footer` | PDF 푸터(페이지 번호) | 꺼짐 |
+
+레이아웃 옵션을 지정하지 않으면 산출물은 이전과 동일하다(기본 동작 불변).
 
 ## 예시
 
@@ -78,6 +87,9 @@ node dist/cli.js report.md --title "월간 보고서"
 
 # 커스텀 테마로 PDF 만, 다른 폴더에 출력
 node dist/cli.js report.md -f pdf -t my-theme.css -o out/
+
+# 표지·목차·헤더/푸터를 갖춘 PDF
+node dist/cli.js report.md -f pdf --cover --date 2026-07-24 --toc --header --footer --title "월간 보고서"
 ```
 
 ## 문서
@@ -88,7 +100,7 @@ node dist/cli.js report.md -f pdf -t my-theme.css -o out/
 
 ## 예정 기능
 
-아직 제공하지 않으며 향후 추가 예정: 자동 목차(TOC), 표지 페이지, 헤더/푸터(페이지 번호), 다중 문서 일괄 변환.
+아직 제공하지 않으며 향후 추가 예정: 다중 문서 일괄 변환, 오프라인 폰트 고정.
 
 ## 라이선스
 

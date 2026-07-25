@@ -1,10 +1,25 @@
 import { readFile, mkdir } from 'node:fs/promises';
 import { basename, extname, join, resolve, dirname } from 'node:path';
-import type { ConvertContext, ConvertDeps, ConvertOptions } from './types.js';
+import type { ConvertContext, ConvertDeps, ConvertOptions, PdfOptions, TransformStage } from './types.js';
 import { createParser } from './parser.js';
 import { createRenderer } from './renderer.js';
 import { resolveTheme } from './theme.js';
 import { assembleDocument } from './template.js';
+import { tocStage, coverStage, pdfHeaderTemplate, pdfFooterTemplate } from './layout.js';
+
+const HF_MARGIN = { top: '22mm', bottom: '22mm', left: '15mm', right: '15mm' };
+
+/** header/footer 옵션을 PdfOptions 로 구성한다 (PDF 전용, 여백 자동 확보). */
+function buildPdfOptions(options: ConvertOptions, title: string): PdfOptions {
+  const pdf: PdfOptions = { ...(options.pdf ?? {}) };
+  if (options.header || options.footer) {
+    pdf.displayHeaderFooter = true;
+    pdf.headerTemplate = options.header ? pdfHeaderTemplate(title) : '<span></span>';
+    pdf.footerTemplate = options.footer ? pdfFooterTemplate() : '<span></span>';
+    pdf.margin = pdf.margin ?? HF_MARGIN;
+  }
+  return pdf;
+}
 
 /**
  * markdown 파일을 HTML·PDF 로 변환한다.
@@ -26,8 +41,20 @@ export async function convert(options: ConvertOptions, deps: ConvertDeps = {}): 
 
   const ctx: ConvertContext = { title, theme, sourcePath: inputPath };
 
+  // 내장 레이아웃 transform(opt-in) 을 사용자 transform 앞에 배치.
+  // 적용 순서: 목차 → 표지 (표지가 최상단에 오도록 마지막 prepend).
+  const builtin: TransformStage[] = [];
+  if (options.toc) {
+    const depth = typeof options.toc === 'object' ? options.toc.depth ?? 3 : 3;
+    builtin.push(tocStage(depth));
+  }
+  if (options.cover) {
+    const date = typeof options.cover === 'object' ? options.cover.date : undefined;
+    builtin.push(coverStage(title, date));
+  }
+
   let bodyHtml = parser.render(markdown);
-  for (const transform of transforms) bodyHtml = transform(bodyHtml, ctx);
+  for (const transform of [...builtin, ...transforms]) bodyHtml = transform(bodyHtml, ctx);
 
   const doc = assembleDocument(bodyHtml, ctx);
   const formats = options.formats ?? ['html', 'pdf'];
@@ -40,7 +67,7 @@ export async function convert(options: ConvertOptions, deps: ConvertDeps = {}): 
   }
   if (formats.includes('pdf')) {
     const out = join(outDir, `${stem}.pdf`);
-    await renderer.pdf(doc, out, options.pdf ?? {});
+    await renderer.pdf(doc, out, buildPdfOptions(options, title));
     outputs.push(out);
   }
   return outputs;

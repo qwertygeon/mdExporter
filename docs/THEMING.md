@@ -61,6 +61,7 @@ body { font-family: 'MyFont', -apple-system, sans-serif; }
 - 코드(인라인 코드, 코드 블록)
 - 인용 블록 → **콜아웃 카드**(주목 박스) 렌더링
 - 링크·강조·구분선·목록
+- 문서 레이아웃 요소(opt-in): 표지(`.cover`·`.cover-title`·`.cover-date`), 목차(`.toc`·`.toc-l3`) — 페이지 나눔(`break-after`)도 여기서 정의. 커스텀 테마에서 이 클래스를 재정의해 모양을 바꿀 수 있다.
 
 ## 인쇄(PDF) 규칙
 
