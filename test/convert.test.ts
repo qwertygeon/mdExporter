@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { convert } from '../src/convert.js';
+import { tmpdir } from 'node:os';
+import { convert, convertMany } from '../src/convert.js';
+import { createRenderer } from '../src/renderer.js';
 import { tocStage } from '../src/layout.js';
+import type { Browser } from 'playwright';
 import type { PdfOptions, Renderer } from '../src/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -152,5 +155,83 @@ describe('tocStage 견고화 (리뷰 후속)', () => {
     const html = '<h6>여섯</h6>';
     const out = tocStage(99)(html, ctx);
     expect(out.split('</nav>')[0]).toContain('>여섯<');
+  });
+});
+
+describe('convertMany 일괄 변환 (v0.3.0)', () => {
+  const batchDir = join(here, 'fixtures', 'batch');
+  const fileA = join(batchDir, 'a.md');
+  const fileB = join(batchDir, 'b.md');
+
+  it('SC-1: 여러 파일 입력 → 각 입력마다 산출', async () => {
+    const { renderer, docs } = captureRenderer();
+    const outs = await convertMany([fileA, fileB], { formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(2);
+    expect(outs.some((o) => o.endsWith('a.html'))).toBe(true);
+    expect(outs.some((o) => o.endsWith('b.html'))).toBe(true);
+    expect(docs.length).toBe(2);
+  });
+
+  it('SC-2: 디렉터리 입력 → 그 안 *.md 전부 변환 (정렬된 결정적 순서)', async () => {
+    const { renderer } = captureRenderer();
+    const outs = await convertMany([batchDir], { formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(2);
+    expect(outs[0]).toContain('a.html');
+    expect(outs[1]).toContain('b.html');
+  });
+
+  it('SC-3: caller 가 공급한 renderer 는 convertMany 가 dispose 하지 않는다 (소유권=caller)', async () => {
+    let disposed = 0;
+    const renderer: Renderer = {
+      html: async () => {},
+      pdf: async () => {},
+      dispose: async () => { disposed++; },
+    };
+    await convertMany([fileA, fileB], { formats: ['html'] }, { renderer });
+    expect(disposed).toBe(0);
+  });
+
+  it('SC-4: 단일 입력 convert 회귀 (기존 동작 유지)', async () => {
+    const { renderer, docs } = captureRenderer();
+    const outs = await convert({ input: fileA, formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(1);
+    expect(outs[0]).toContain('a.html');
+    expect(docs[0]).toContain('문서 A');
+  });
+
+  it('SC-5: 일괄 변환도 각 원문 내용 보존', async () => {
+    const { renderer, docs } = captureRenderer();
+    await convertMany([fileA, fileB], { formats: ['html'] }, { renderer });
+    const joined = docs.join('\n');
+    expect(joined).toContain('알파');
+    expect(joined).toContain('베타');
+  });
+
+  it('소유 renderer(미공급) 경로: html-only 는 브라우저 없이 완료', async () => {
+    // deps.renderer 미공급 → convertMany 가 createRenderer 소유. html 만이라 chromium launch 없음, dispose no-op.
+    const outDir = join(tmpdir(), 'mdexporter-test-out');
+    const outs = await convertMany([fileA], { formats: ['html'], outDir });
+    expect(outs.length).toBe(1);
+    expect(outs[0]).toContain('a.html');
+  });
+});
+
+describe('createRenderer 브라우저 재사용 (v0.3.0)', () => {
+  it('SC-3: 여러 PDF 호출에서 브라우저를 1회만 launch, dispose 로 닫는다', async () => {
+    let launches = 0;
+    let closes = 0;
+    let pages = 0;
+    const fakePage = { setContent: async () => {}, pdf: async () => {}, close: async () => {} };
+    const fakeBrowser = {
+      newPage: async () => { pages++; return fakePage; },
+      close: async () => { closes++; },
+    } as unknown as Browser;
+    const r = createRenderer(async () => { launches++; return fakeBrowser; });
+    await r.pdf('<html></html>', join(tmpdir(), 'reuse-1.pdf'), {});
+    await r.pdf('<html></html>', join(tmpdir(), 'reuse-2.pdf'), {});
+    expect(launches).toBe(1); // 재사용 (매 호출 launch 아님)
+    expect(pages).toBe(2);
+    await r.dispose!();
+    expect(closes).toBe(1);
   });
 });

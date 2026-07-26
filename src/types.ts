@@ -55,6 +55,8 @@ export interface Parser {
 export interface Renderer {
   html(doc: string, outPath: string): Promise<void>;
   pdf(doc: string, outPath: string, pdf: PdfOptions): Promise<void>;
+  /** 재사용 리소스(브라우저 등) 정리 — 렌더러 소유자가 작업 종료 시 1회 호출. */
+  dispose?(): Promise<void>;
 }
 
 /** convert() 에 주입 가능한 구현들. 미지정 시 기본 구현 사용. */
