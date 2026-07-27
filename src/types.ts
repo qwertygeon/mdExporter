@@ -64,4 +64,9 @@ export interface ConvertDeps {
   parser?: Parser;
   renderer?: Renderer;
   transforms?: TransformStage[];
+  /**
+   * 소유 렌더러 팩토리. renderer 미공급 시 이 팩토리로 렌더러를 생성하며,
+   * 생성된 렌더러는 여전히 convert/convertMany 소유(종료 시 dispose). 기본: createRenderer.
+   */
+  createRenderer?: () => Renderer;
 }

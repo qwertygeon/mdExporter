@@ -47,16 +47,11 @@ program
         throw new Error(`invalid --toc-depth "${opts.tocDepth}" (expected an integer ≥ 2)`);
       }
     }
-    // 다중 입력 시 --title 은 문서마다 같은 제목을 강제하므로 무시(각 파일명 사용).
-    let title = opts.title;
-    if (inputs.length > 1 && title !== undefined) {
-      console.warn(`⚠ 입력이 여러 개라 --title "${title}" 을 무시하고 각 파일명을 제목으로 사용합니다.`);
-      title = undefined;
-    }
+    // --title 무시 판정(다중 입력 시)은 convertMany 가 확장 후 파일 개수 기준으로 수행한다.
     const outputs = await convertMany(inputs, {
       formats,
       theme: opts.theme,
-      title,
+      title: opts.title,
       outDir: opts.outDir,
       toc: opts.toc ? (tocDepth !== undefined ? { depth: tocDepth } : true) : undefined,
       cover: opts.cover ? (opts.date ? { date: opts.date } : true) : undefined,

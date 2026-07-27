@@ -30,7 +30,7 @@ export async function convert(options: ConvertOptions, deps: ConvertDeps = {}): 
   const parser = deps.parser ?? createParser();
   // deps.renderer 미공급 시 convert 가 렌더러를 소유하고 종료 시 정리한다(단일 변환 자기완결).
   const ownRenderer = !deps.renderer;
-  const renderer = deps.renderer ?? createRenderer();
+  const renderer = deps.renderer ?? (deps.createRenderer ?? createRenderer)();
   const transforms = deps.transforms ?? [];
 
   try {
@@ -107,13 +107,26 @@ export async function convertMany(
   deps: ConvertDeps = {},
 ): Promise<string[]> {
   const files = await expandInputs(inputs);
+  // 매칭 0건을 성공(무동작)으로 흡수하지 않는다 — 변환 대상 부재는 필수 입력 실패로 전파한다.
+  if (files.length === 0) {
+    throw new Error(
+      `변환할 markdown(.md) 파일이 없습니다 (입력: ${inputs.join(', ')}). 디렉터리에 .md 파일이 있는지 확인하세요.`,
+    );
+  }
+  // --title 무시 판정은 CLI 원시 인자 수가 아니라 확장 후 파일 개수 기준 —
+  // 단일 디렉터리 입력도 여러 파일로 펼쳐지면 문서마다 같은 제목을 강제하게 되므로.
+  let title = options.title;
+  if (files.length > 1 && title !== undefined) {
+    console.warn(`⚠ 입력이 ${files.length}개라 --title "${title}" 을 무시하고 각 파일명을 제목으로 사용합니다.`);
+    title = undefined;
+  }
   const ownRenderer = !deps.renderer;
-  const renderer = deps.renderer ?? createRenderer();
+  const renderer = deps.renderer ?? (deps.createRenderer ?? createRenderer)();
   const outputs: string[] = [];
   try {
     for (const file of files) {
       // renderer 를 deps 로 넘겨 convert 가 dispose 하지 않게 한다(convertMany 가 소유·정리).
-      const outs = await convert({ ...options, input: file }, { ...deps, renderer });
+      const outs = await convert({ ...options, title, input: file }, { ...deps, renderer });
       outputs.push(...outs);
     }
     return outputs;
