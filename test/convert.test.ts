@@ -297,6 +297,48 @@ describe('expandInputs 엣지 (v0.3.0 회귀 가드)', () => {
   });
 });
 
+describe('convertMany 출력 충돌·디렉터리 엔트리 (PR #3 재리뷰 후속)', () => {
+  it('서로 다른 폴더의 동명 파일이 한 --out-dir 로 모이면 충돌 에러(조용한 덮어쓰기 방지)', async () => {
+    const base = join(tmpdir(), 'mdexporter-collide');
+    const dirA = join(base, 'a');
+    const dirB = join(base, 'b');
+    rmSync(base, { recursive: true, force: true });
+    mkdirSync(dirA, { recursive: true });
+    mkdirSync(dirB, { recursive: true });
+    writeFileSync(join(dirA, 'report.md'), '# A\n', 'utf8');
+    writeFileSync(join(dirB, 'report.md'), '# B\n', 'utf8');
+    const { renderer } = captureRenderer();
+    await expect(
+      convertMany(
+        [join(dirA, 'report.md'), join(dirB, 'report.md')],
+        { formats: ['html'], outDir: join(base, 'out') },
+        { renderer },
+      ),
+    ).rejects.toThrow(/출력 경로 충돌/);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('.md 로 끝나는 하위 디렉터리는 변환 대상에서 제외(EISDIR 방지)', async () => {
+    const dir = join(tmpdir(), 'mdexporter-mddir');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'sub.md'), { recursive: true }); // 이름이 .md 인 디렉터리
+    writeFileSync(join(dir, 'real.md'), '# 진짜\n', 'utf8');
+    const { renderer, docs } = captureRenderer();
+    const outs = await convertMany([dir], { formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(1);
+    expect(outs[0]).toContain('real.html');
+    expect(docs.length).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('존재하지 않는 입력 경로는 친절한 메시지로 전파(raw ENOENT 아님)', async () => {
+    const { renderer } = captureRenderer();
+    await expect(
+      convertMany([join(tmpdir(), 'mdexporter-no-such-file-xyz.md')], { formats: ['html'] }, { renderer }),
+    ).rejects.toThrow(/입력 경로를 찾을 수 없습니다/);
+  });
+});
+
 describe('createRenderer 브라우저 재사용 (v0.3.0)', () => {
   it('SC-3: 여러 PDF 호출에서 브라우저를 1회만 launch, dispose 로 닫는다', async () => {
     let launches = 0;

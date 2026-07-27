@@ -84,10 +84,21 @@ async function expandInputs(inputs: string[]): Promise<string[]> {
   const files = new Set<string>();
   for (const input of inputs) {
     const p = resolve(input);
-    const st = await stat(p);
+    let st;
+    try {
+      st = await stat(p);
+    } catch (err) {
+      // 존재하지 않는 경로는 저수준 ENOENT 대신 친절한 메시지로 전파한다(흡수 아님 — 필수 입력 실패).
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new Error(`입력 경로를 찾을 수 없습니다: ${input}`, { cause: err });
+      }
+      throw err;
+    }
     if (st.isDirectory()) {
-      for (const entry of await readdir(p)) {
-        if (entry.toLowerCase().endsWith('.md')) files.add(join(p, entry));
+      for (const entry of await readdir(p, { withFileTypes: true })) {
+        // 이름이 .md 로 끝나는 하위 디렉터리를 파일로 오인하지 않는다(이후 readFile EISDIR 방지).
+        if (entry.isDirectory()) continue;
+        if (entry.name.toLowerCase().endsWith('.md')) files.add(join(p, entry.name));
       }
     } else {
       files.add(p);
@@ -112,6 +123,21 @@ export async function convertMany(
     throw new Error(
       `변환할 markdown(.md) 파일이 없습니다 (입력: ${inputs.join(', ')}). 디렉터리에 .md 파일이 있는지 확인하세요.`,
     );
+  }
+  // 산출 경로 충돌 사전 감지: 서로 다른 입력이 같은 출력 경로로 써지면 앞선 산출물이 조용히 유실되므로 차단한다.
+  // (예: 서로 다른 폴더의 동명 파일을 하나의 --out-dir 로 모으는 경우)
+  const outSeen = new Map<string, string>();
+  for (const file of files) {
+    const targetDir = options.outDir ? resolve(options.outDir) : dirname(file);
+    const outKey = join(targetDir, basename(file, extname(file)));
+    const prev = outSeen.get(outKey);
+    if (prev) {
+      throw new Error(
+        `출력 경로 충돌: "${prev}" 와 "${file}" 가 모두 "${outKey}.{html,pdf}" 로 써집니다. ` +
+          `--out-dir 를 나누거나 입력 파일명을 구분하세요.`,
+      );
+    }
+    outSeen.set(outKey, file);
   }
   // --title 무시 판정은 CLI 원시 인자 수가 아니라 확장 후 파일 개수 기준 —
   // 단일 디렉터리 입력도 여러 파일로 펼쳐지면 문서마다 같은 제목을 강제하게 되므로.
