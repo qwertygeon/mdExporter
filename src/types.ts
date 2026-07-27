@@ -55,6 +55,8 @@ export interface Parser {
 export interface Renderer {
   html(doc: string, outPath: string): Promise<void>;
   pdf(doc: string, outPath: string, pdf: PdfOptions): Promise<void>;
+  /** 재사용 리소스(브라우저 등) 정리 — 렌더러 소유자가 작업 종료 시 1회 호출. */
+  dispose?(): Promise<void>;
 }
 
 /** convert() 에 주입 가능한 구현들. 미지정 시 기본 구현 사용. */
@@ -62,4 +64,9 @@ export interface ConvertDeps {
   parser?: Parser;
   renderer?: Renderer;
   transforms?: TransformStage[];
+  /**
+   * 소유 렌더러 팩토리. renderer 미공급 시 이 팩토리로 렌더러를 생성하며,
+   * 생성된 렌더러는 여전히 convert/convertMany 소유(종료 시 dispose). 기본: createRenderer.
+   */
+  createRenderer?: () => Renderer;
 }

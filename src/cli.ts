@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { convert } from './convert.js';
+import { convertMany } from './convert.js';
 import type { OutputFormat } from './types.js';
 
 interface CliOptions {
@@ -27,10 +27,10 @@ const program = new Command();
 program
   .name('mdexport')
   .description('Markdown → HTML/PDF exporter (content-preserving, pluggable theme)')
-  .argument('<input>', 'input markdown file (.md)')
+  .argument('<inputs...>', 'input markdown file(s) or directory (shell expands globs like *.md)')
   .option('-f, --format <format>', 'output: html | pdf | both', 'both')
   .option('-t, --theme <path>', 'CSS theme file (default: built-in)')
-  .option('--title <title>', 'HTML <title> (default: filename)')
+  .option('--title <title>', 'HTML <title> (default: filename; ignored with multiple inputs)')
   .option('-o, --out-dir <dir>', 'output directory (default: alongside input)')
   .option('--toc', 'generate a table of contents')
   .option('--toc-depth <n>', 'TOC heading depth (default 3 = h2–h3)')
@@ -38,7 +38,7 @@ program
   .option('--date <date>', 'cover date (shown only when set)')
   .option('--header', 'PDF header with document title')
   .option('--footer', 'PDF footer with page numbers')
-  .action(async (input: string, opts: CliOptions) => {
+  .action(async (inputs: string[], opts: CliOptions) => {
     const formats: OutputFormat[] = resolveFormats(opts.format);
     let tocDepth: number | undefined;
     if (opts.tocDepth !== undefined) {
@@ -47,8 +47,8 @@ program
         throw new Error(`invalid --toc-depth "${opts.tocDepth}" (expected an integer ≥ 2)`);
       }
     }
-    const outputs = await convert({
-      input,
+    // --title 무시 판정(다중 입력 시)은 convertMany 가 확장 후 파일 개수 기준으로 수행한다.
+    const outputs = await convertMany(inputs, {
       formats,
       theme: opts.theme,
       title: opts.title,

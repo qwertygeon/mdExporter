@@ -2,6 +2,18 @@
 
 이 프로젝트의 주요 변경 사항을 기록한다. 형식은 [Keep a Changelog](https://keepachangelog.com/), 버전은 [Semantic Versioning](https://semver.org/) 을 따른다.
 
+## [Unreleased]
+
+### Added
+
+- 다중 문서 일괄 변환 — 여러 `.md` 파일이나 디렉터리를 한 번에 변환(`mdexport <입력...>`). glob 은 shell 확장, 디렉터리는 그 안 `.md`(비재귀).
+- 일괄 PDF 변환 시 Chromium 인스턴스 재사용 — 문서마다 재실행하지 않고 한 번 띄워 처리 후 정리.
+
+### Changed
+
+- `.gitignore` 의 `*.html`/`*.pdf` 전역 무시를 루트 스크래치(`/*.html`·`/*.pdf`) 한정으로 좁힘 — 저장소 자산으로 두려는 html/pdf 는 다른 경로에서 추적 가능.
+- 입력이 여러 개면 `--title` 은 무시되고 각 파일명이 제목으로 쓰인다(단일 입력은 종전대로).
+
 ## [0.2.0] - 2026-07-24
 
 ### Added

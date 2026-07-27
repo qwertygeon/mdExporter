@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { readFileSync } from 'node:fs';
-import { convert } from '../src/convert.js';
+import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { convert, convertMany } from '../src/convert.js';
+import { createRenderer } from '../src/renderer.js';
 import { tocStage } from '../src/layout.js';
+import type { Browser } from 'playwright';
 import type { PdfOptions, Renderer } from '../src/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -152,5 +155,206 @@ describe('tocStage 견고화 (리뷰 후속)', () => {
     const html = '<h6>여섯</h6>';
     const out = tocStage(99)(html, ctx);
     expect(out.split('</nav>')[0]).toContain('>여섯<');
+  });
+});
+
+describe('convertMany 일괄 변환 (v0.3.0)', () => {
+  const batchDir = join(here, 'fixtures', 'batch');
+  const fileA = join(batchDir, 'a.md');
+  const fileB = join(batchDir, 'b.md');
+
+  it('SC-1: 여러 파일 입력 → 각 입력마다 산출', async () => {
+    const { renderer, docs } = captureRenderer();
+    const outs = await convertMany([fileA, fileB], { formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(2);
+    expect(outs.some((o) => o.endsWith('a.html'))).toBe(true);
+    expect(outs.some((o) => o.endsWith('b.html'))).toBe(true);
+    expect(docs.length).toBe(2);
+  });
+
+  it('SC-2: 디렉터리 입력 → 그 안 *.md 전부 변환 (정렬된 결정적 순서)', async () => {
+    const { renderer } = captureRenderer();
+    const outs = await convertMany([batchDir], { formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(2);
+    expect(outs[0]).toContain('a.html');
+    expect(outs[1]).toContain('b.html');
+  });
+
+  it('SC-3: caller 가 공급한 renderer 는 convertMany 가 dispose 하지 않는다 (소유권=caller)', async () => {
+    let disposed = 0;
+    const renderer: Renderer = {
+      html: async () => {},
+      pdf: async () => {},
+      dispose: async () => { disposed++; },
+    };
+    await convertMany([fileA, fileB], { formats: ['html'] }, { renderer });
+    expect(disposed).toBe(0);
+  });
+
+  it('SC-4: 단일 입력 convert 회귀 (기존 동작 유지)', async () => {
+    const { renderer, docs } = captureRenderer();
+    const outs = await convert({ input: fileA, formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(1);
+    expect(outs[0]).toContain('a.html');
+    expect(docs[0]).toContain('문서 A');
+  });
+
+  it('SC-5: 일괄 변환도 각 원문 내용 보존', async () => {
+    const { renderer, docs } = captureRenderer();
+    await convertMany([fileA, fileB], { formats: ['html'] }, { renderer });
+    const joined = docs.join('\n');
+    expect(joined).toContain('알파');
+    expect(joined).toContain('베타');
+  });
+
+  it('소유 renderer(미공급) 경로: html-only 는 브라우저 없이 완료', async () => {
+    // deps.renderer 미공급 → convertMany 가 createRenderer 소유. html 만이라 chromium launch 없음, dispose no-op.
+    const outDir = join(tmpdir(), 'mdexporter-test-out');
+    const outs = await convertMany([fileA], { formats: ['html'], outDir });
+    expect(outs.length).toBe(1);
+    expect(outs[0]).toContain('a.html');
+  });
+});
+
+describe('convertMany 소유 렌더러 dispose 실경로 (v0.3.0)', () => {
+  const batchDir = join(here, 'fixtures', 'batch');
+  const fileA = join(batchDir, 'a.md');
+  const fileB = join(batchDir, 'b.md');
+
+  /** launchBrowser 주입 fake — browser.close 호출 횟수를 관찰한다(실 chromium 없음). */
+  function countingRenderer() {
+    let closes = 0;
+    let launches = 0;
+    let pdfCalls = 0;
+    const control = { failAt: -1 };
+    const fakePage = {
+      setContent: async () => {},
+      pdf: async () => {
+        pdfCalls++;
+        if (pdfCalls === control.failAt) throw new Error('boom');
+      },
+      close: async () => {},
+    };
+    const fakeBrowser = {
+      newPage: async () => fakePage,
+      close: async () => { closes++; },
+    } as unknown as Browser;
+    const factory = () => createRenderer(async () => { launches++; return fakeBrowser; });
+    return { factory, control, stats: () => ({ closes, launches, pdfCalls }) };
+  }
+
+  it('PDF 일괄 변환 후 소유 브라우저를 1회만 launch·close 한다', async () => {
+    const { factory, stats } = countingRenderer();
+    const outDir = join(tmpdir(), 'mdexporter-owned-dispose');
+    const outs = await convertMany([fileA, fileB], { formats: ['pdf'], outDir }, { createRenderer: factory });
+    expect(outs.length).toBe(2);
+    expect(stats().launches).toBe(1); // 재사용
+    expect(stats().closes).toBe(1); // convertMany 소유 → 종료 시 dispose
+  });
+
+  it('PDF 중간 실패 시에도 finally 로 소유 브라우저를 dispose (누수 방어)', async () => {
+    const { factory, control, stats } = countingRenderer();
+    control.failAt = 2; // 두 번째 문서 PDF 에서 실패
+    const outDir = join(tmpdir(), 'mdexporter-owned-fail');
+    await expect(
+      convertMany([fileA, fileB], { formats: ['pdf'], outDir }, { createRenderer: factory }),
+    ).rejects.toThrow('boom');
+    expect(stats().closes).toBe(1); // 예외 전파에도 렌더러 정리
+  });
+});
+
+describe('expandInputs 엣지 (v0.3.0 회귀 가드)', () => {
+  const batchDir = join(here, 'fixtures', 'batch');
+  const fileA = join(batchDir, 'a.md');
+
+  it('대문자 .MD 확장자도 매칭한다', async () => {
+    const dir = join(tmpdir(), 'mdexporter-edge-upper');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'upper.MD'), '# 대문자 확장자\n', 'utf8');
+    const { renderer, docs } = captureRenderer();
+    const outs = await convertMany([dir], { formats: ['html'] }, { renderer });
+    expect(outs.some((o) => o.endsWith('upper.html'))).toBe(true);
+    expect(docs.length).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('파일 + 그 파일을 포함한 디렉터리 중복 지정 → 1회만 변환(dedup)', async () => {
+    const { renderer } = captureRenderer();
+    const outs = await convertMany([fileA, batchDir], { formats: ['html'] }, { renderer });
+    expect(outs.filter((o) => o.endsWith('a.html')).length).toBe(1);
+  });
+
+  it('빈 디렉터리(.md 0건) → 무동작 흡수 대신 에러 전파', async () => {
+    const dir = join(tmpdir(), 'mdexporter-edge-empty');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    const { renderer } = captureRenderer();
+    await expect(
+      convertMany([dir], { formats: ['html'] }, { renderer }),
+    ).rejects.toThrow(/markdown.*파일이 없습니다/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('convertMany 출력 충돌·디렉터리 엔트리 (PR #3 재리뷰 후속)', () => {
+  it('서로 다른 폴더의 동명 파일이 한 --out-dir 로 모이면 충돌 에러(조용한 덮어쓰기 방지)', async () => {
+    const base = join(tmpdir(), 'mdexporter-collide');
+    const dirA = join(base, 'a');
+    const dirB = join(base, 'b');
+    rmSync(base, { recursive: true, force: true });
+    mkdirSync(dirA, { recursive: true });
+    mkdirSync(dirB, { recursive: true });
+    writeFileSync(join(dirA, 'report.md'), '# A\n', 'utf8');
+    writeFileSync(join(dirB, 'report.md'), '# B\n', 'utf8');
+    const { renderer } = captureRenderer();
+    await expect(
+      convertMany(
+        [join(dirA, 'report.md'), join(dirB, 'report.md')],
+        { formats: ['html'], outDir: join(base, 'out') },
+        { renderer },
+      ),
+    ).rejects.toThrow(/출력 경로 충돌/);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('.md 로 끝나는 하위 디렉터리는 변환 대상에서 제외(EISDIR 방지)', async () => {
+    const dir = join(tmpdir(), 'mdexporter-mddir');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'sub.md'), { recursive: true }); // 이름이 .md 인 디렉터리
+    writeFileSync(join(dir, 'real.md'), '# 진짜\n', 'utf8');
+    const { renderer, docs } = captureRenderer();
+    const outs = await convertMany([dir], { formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(1);
+    expect(outs[0]).toContain('real.html');
+    expect(docs.length).toBe(1);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('존재하지 않는 입력 경로는 친절한 메시지로 전파(raw ENOENT 아님)', async () => {
+    const { renderer } = captureRenderer();
+    await expect(
+      convertMany([join(tmpdir(), 'mdexporter-no-such-file-xyz.md')], { formats: ['html'] }, { renderer }),
+    ).rejects.toThrow(/입력 경로를 찾을 수 없습니다/);
+  });
+});
+
+describe('createRenderer 브라우저 재사용 (v0.3.0)', () => {
+  it('SC-3: 여러 PDF 호출에서 브라우저를 1회만 launch, dispose 로 닫는다', async () => {
+    let launches = 0;
+    let closes = 0;
+    let pages = 0;
+    const fakePage = { setContent: async () => {}, pdf: async () => {}, close: async () => {} };
+    const fakeBrowser = {
+      newPage: async () => { pages++; return fakePage; },
+      close: async () => { closes++; },
+    } as unknown as Browser;
+    const r = createRenderer(async () => { launches++; return fakeBrowser; });
+    await r.pdf('<html></html>', join(tmpdir(), 'reuse-1.pdf'), {});
+    await r.pdf('<html></html>', join(tmpdir(), 'reuse-2.pdf'), {});
+    expect(launches).toBe(1); // 재사용 (매 호출 launch 아님)
+    expect(pages).toBe(2);
+    await r.dispose!();
+    expect(closes).toBe(1);
   });
 });
