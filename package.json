@@ -11,7 +11,8 @@
   "types": "dist/convert.d.ts",
   "files": [
     "dist",
-    "themes"
+    "themes",
+    "!themes/fonts/*.woff2"
   ],
   "engines": {
     "node": ">=18"

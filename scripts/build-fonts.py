@@ -9,14 +9,16 @@ base64 를 themes/default.css(KS X 1001 2350)·themes/default-full.css
 실행 (fonttools 는 uv 로 격리 실행 — package.json 런타임/개발 의존성에
 등재하지 않는다):
 
-    uv run --with 'fonttools[woff]' --with brotli python scripts/build-fonts.py
+    uv run --with 'fonttools[woff]==4.63.0' --with 'brotli==1.1.0' python scripts/build-fonts.py
 
 네트워크로 원본 폰트를 받을 수 없으면 로컬 경로를 지정한다:
 
-    uv run --with 'fonttools[woff]' --with brotli python scripts/build-fonts.py \\
+    uv run --with 'fonttools[woff]==4.63.0' --with 'brotli==1.1.0' python scripts/build-fonts.py \\
         --input /path/to/PretendardVariable.woff2
 
-멱등: 재실행해도 동일 코드포인트 집합·축 범위로 동일한 산출을 만든다.
+재실행 시 동일 코드포인트 집합·축 범위로 동등한 서브셋을 만든다. 산출 woff2 의
+정확한 바이트는 인코더(fonttools/brotli) 버전에 의존하므로, 커밋된 자산과 바이트
+단위로 동일하게 재현하려면 위 핀 버전(fonttools 4.63.0 · brotli 1.1.0)으로 실행한다.
 default.css 는 기존 @font-face(Pretendard Variable) 블록만 치환하고 그 외
 규칙은 그대로 둔다. default-full.css 는 매 실행 시 (치환된) default.css
 전문을 소스로 재생성한다 — 두 테마의 "폰트 외 규칙 동일" 보장 방식.
