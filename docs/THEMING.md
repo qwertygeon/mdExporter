@@ -7,6 +7,10 @@ mdExporter 의 디자인은 **테마(CSS 한 벌)** 가 결정한다. 내장 기
 - [테마 지정](#테마-지정)
 - [색 커스터마이즈](#색-커스터마이즈)
 - [폰트 교체](#폰트-교체)
+- [내장 오프라인 폰트 (Pretendard 임베딩)](#내장-오프라인-폰트-pretendard-임베딩)
+  - [세 테마 변형](#세-테마-변형)
+  - [라이선스](#라이선스)
+  - [폰트 자산 재생성](#폰트-자산-재생성)
 - [테마가 다루는 요소](#테마가-다루는-요소)
 - [인쇄(PDF) 규칙](#인쇄pdf-규칙)
 - [커스텀 테마 만들기](#커스텀-테마-만들기)
@@ -44,12 +48,42 @@ mdexport 문서.md --theme my-theme.css
 
 ## 폰트 교체
 
-폰트는 `body` 의 `font-family` 로 지정한다. 기본 테마는 한글 시인성을 위해 Pretendard(웹폰트)를 1순위로 두고, 미로드 시 시스템 한글 폰트로 폴백한다. 웹폰트를 쓰면 상단 `@import` 와 `font-family` 를 함께 바꾼다.
+폰트는 `body` 의 `font-family` 로 지정한다. 기본 테마는 한글 시인성을 위해 Pretendard 를 1순위로 두고, 서브셋 범위 밖 글자나 폰트 자체가 없는 경우 시스템 한글 폰트로 폴백한다(다음 절 참조). 원격 웹폰트로 교체하려면 상단에 `@import` 를 추가하고 `font-family` 를 함께 바꾼다.
 
 ```css
 @import url('...웹폰트 CSS URL...');
 body { font-family: 'MyFont', -apple-system, sans-serif; }
 ```
+
+## 내장 오프라인 폰트 (Pretendard 임베딩)
+
+기본 테마는 Pretendard 를 base64 데이터 URI `@font-face` 로 CSS 안에 직접 담는다 — 네트워크 유무와 무관하게 항상 동일하게 렌더된다(오프라인 결정성). 임베딩은 가변축(variable font)을 유지한 채 `font-weight: 400 800` 범위로 클립되어, 테마가 실제 쓰는 굵기(본문 400·`h2`/`h3`/`strong` 700·`h1` 800)를 모두 커버한다. 서브셋 범위 밖 글자(희귀 한자·이모지 등)는 기존 폴백 체인(`Apple SD Gothic Neo` → `Noto Sans KR` → `-apple-system` → `sans-serif`)으로 자연히 넘어간다.
+
+### 세 테마 변형
+
+임베딩 커버리지·크기는 새 CLI 옵션이 아니라 **테마 파일 교체**(`--theme`)로 선택한다:
+
+| 테마 | 서브셋 범위 | 특징 |
+|---|---|---|
+| `themes/default.css` (기본) | KS X 1001 상용 한글 2350자 + 영문 | 오프라인 결정성을 기본으로 제공, 크기 균형 |
+| `themes/default-full.css` | 현대 한글 전체(U+AC00–D7A3, 11172자) + 영문 | 상용 범위를 넘는 한글까지 완전 커버(크기 더 큼) |
+| `themes/default-cdn.css` | 없음(CDN `@import` 원격 로드) | 임베딩 없이 기존 웹폰트 방식 — 온라인·크기 최소 |
+
+세 파일은 폰트 선언(`@font-face`/`@import`)만 다르고 나머지 색·레이아웃 규칙은 동일하다. 자세한 크기·선택 안내는 [사용자 매뉴얼의 오프라인 폰트와 테마 변형](USAGE.md#오프라인-폰트와-테마-변형) 참조.
+
+### 라이선스
+
+임베딩·동봉된 Pretendard 는 SIL Open Font License 1.1 을 따른다. 라이선스 전문은 `themes/fonts/OFL.txt` 로 동봉되어 배포(`package.json` `files`)에 포함된다.
+
+### 폰트 자산 재생성
+
+`themes/fonts/PretendardVariable.subset.woff2`(2350 서브셋)·`themes/fonts/PretendardVariable.full.woff2`(11172 전체)와 두 테마의 base64 임베딩은 `scripts/build-fonts.py` 로 재현 가능하다. 이 스크립트는 Python `fonttools`(빌드타임 도구)를 사용하며, 프로젝트의 npm 런타임 의존성에는 포함되지 않는다.
+
+```bash
+uv run --with 'fonttools[woff]' --with brotli python scripts/build-fonts.py
+```
+
+원본 Pretendard 가변 폰트를 원격(jsdelivr)에서 내려받아 가변축을 400~800 으로 클립한 뒤 두 코드포인트 집합으로 서브셋을 만들고, 각 결과를 `themes/default.css`·`themes/default-full.css` 의 `@font-face` 블록에 base64 로 주입한다. 재실행해도 동일한 결과를 낸다(멱등).
 
 ## 테마가 다루는 요소
 

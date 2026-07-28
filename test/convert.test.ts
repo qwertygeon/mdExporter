@@ -5,6 +5,7 @@ import { readFileSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync
 import { tmpdir } from 'node:os';
 import { convert, convertMany } from '../src/convert.js';
 import { createRenderer } from '../src/renderer.js';
+import { resolveTheme } from '../src/theme.js';
 import { tocStage } from '../src/layout.js';
 import type { Browser } from 'playwright';
 import type { PdfOptions, Renderer } from '../src/types.js';
@@ -229,6 +230,7 @@ describe('convertMany 소유 렌더러 dispose 실경로 (v0.3.0)', () => {
     const control = { failAt: -1 };
     const fakePage = {
       setContent: async () => {},
+      evaluate: async () => {},
       pdf: async () => {
         pdfCalls++;
         if (pdfCalls === control.failAt) throw new Error('boom');
@@ -380,7 +382,7 @@ describe('createRenderer 브라우저 재사용 (v0.3.0)', () => {
     let launches = 0;
     let closes = 0;
     let pages = 0;
-    const fakePage = { setContent: async () => {}, pdf: async () => {}, close: async () => {} };
+    const fakePage = { setContent: async () => {}, evaluate: async () => {}, pdf: async () => {}, close: async () => {} };
     const fakeBrowser = {
       newPage: async () => { pages++; return fakePage; },
       close: async () => { closes++; },
@@ -569,5 +571,117 @@ describe('재귀 순회 정적 검증 (v0.3.0 002, SC-11·SC-12)', () => {
     expect(usage).toContain('node_modules');
     // dot-디렉터리 스킵 규칙 문구(spec FR-6 계승 표현 중 하나) 존재 확인.
     expect(usage).toMatch(/점\(\.\)|dot-디렉터리|\(dot\)|\.\s*으로\s*시작하는 디렉터리|숨김 디렉터리/);
+  });
+});
+
+describe('오프라인 폰트 임베딩 (v0.3.0 003)', () => {
+  const themesDir = join(here, '..', 'themes');
+  const defaultCssPath = join(themesDir, 'default.css');
+  const defaultCss = readFileSync(defaultCssPath, 'utf8');
+
+  /** @font-face 블록(default/full 테마) 또는 선행 @import 행(cdn 테마)을 제거해 폰트 외 규칙만 남긴다. */
+  function fontlessRules(css: string): string {
+    return css
+      .replace(/@font-face\s*{[^}]*}/s, '')
+      .replace(/^@import[^\n]*\n/, '')
+      .trim();
+  }
+
+  it('SC-1: 원격 CDN 참조 부재 + 임베딩 존재', () => {
+    expect(defaultCss).not.toMatch(/jsdelivr|https?:|@import/);
+    expect(defaultCss).toContain('@font-face');
+    expect(defaultCss).toMatch(/src:\s*url\(data:font\/woff2;base64,/);
+  });
+
+  it('SC-2: 폰트 우선순위 불변', () => {
+    const fontFaceBlock = defaultCss.slice(0, defaultCss.indexOf('}') + 1);
+    expect(fontFaceBlock).toMatch(/font-family:\s*'Pretendard Variable'/);
+    const bodyFontFamily = defaultCss.match(/body\s*{[^}]*font-family:\s*'([^']+)'/)?.[1];
+    expect(bodyFontFamily).toMatch(/^Pretendard( Variable)?$/);
+  });
+
+  it('SC-3: 가변 굵기 400·700·800 커버', () => {
+    expect(defaultCss).toMatch(/font-weight:\s*400\s+800/);
+  });
+
+  it('SC-4: 폴백 체인 유지', () => {
+    const bodyFontFamilyLine = defaultCss.match(/body\s*{[^}]*font-family:[^;]+;/)?.[0] ?? '';
+    // 순서대로 나타나는지 확인 — 각 토큰이 이전 토큰보다 뒤에 위치해야 폴백 순서가 유지된다.
+    const order = ['Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', '-apple-system', 'sans-serif'];
+    let lastIndex = -1;
+    for (const token of order) {
+      const idx = bodyFontFamilyLine.indexOf(token);
+      expect(idx).toBeGreaterThan(lastIndex);
+      lastIndex = idx;
+    }
+  });
+
+  it('SC-5: default-cdn.css 동봉·CDN import', () => {
+    const cdnPath = join(themesDir, 'default-cdn.css');
+    expect(existsSync(cdnPath)).toBe(true);
+    const cdnCss = readFileSync(cdnPath, 'utf8');
+    expect(cdnCss).toContain('@import');
+    expect(cdnCss.toLowerCase()).toContain('jsdelivr');
+    expect(cdnCss.toLowerCase()).toContain('pretendard');
+    expect(fontlessRules(cdnCss)).toBe(fontlessRules(defaultCss));
+  });
+
+  it('SC-6: --theme default-cdn 회피 경로 적용', async () => {
+    const cdnPath = join(themesDir, 'default-cdn.css');
+    const css = await resolveTheme(cdnPath);
+    expect(css).toMatch(/@import[^\n]*jsdelivr/);
+  });
+
+  it('SC-7: OFL 동봉 + files 포함', () => {
+    const oflPath = join(themesDir, 'fonts', 'OFL.txt');
+    expect(existsSync(oflPath)).toBe(true);
+    const ofl = readFileSync(oflPath, 'utf8');
+    expect(ofl).toMatch(/SIL Open Font License.*1\.1/s);
+    const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as { files: string[] };
+    expect(pkg.files).toContain('themes');
+  });
+
+  it('SC-8: networkidle 유지', () => {
+    const rendererSrc = readFileSync(join(here, '..', 'src', 'renderer.ts'), 'utf8');
+    expect(rendererSrc).toMatch(/waitUntil:\s*['"]networkidle['"]/);
+  });
+
+  it('SC-9: 임베딩 테마 내용 문자 단위 보존', async () => {
+    const { renderer, docs } = captureRenderer();
+    await convertMany([fixture], { formats: ['html'] }, { renderer });
+    const source = readFileSync(fixture, 'utf8');
+    const words = source.match(/[가-힣A-Za-z0-9]+/g) ?? [];
+    for (const word of words) expect(docs[0]).toContain(word);
+  });
+
+  it('SC-10: 신규 런타임 의존성 0', () => {
+    const pkg = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>;
+    };
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(['commander', 'markdown-it', 'playwright']);
+    expect(pkg.dependencies).not.toHaveProperty('fonttools');
+  });
+
+  // USAGE.md 크기·회피 경로 안내는 6단계 문서 갱신 이후 반영 대상이라 이 시점엔 RED 가 예상된다
+  // (5b 재실행 시 문서 갱신 완료 여부로 재판정).
+  it('SC-11: USAGE 크기·회피 경로 문서화', () => {
+    const usage = readFileSync(join(here, '..', 'docs', 'USAGE.md'), 'utf8');
+    expect(usage).toMatch(/크기|KB|MB/);
+    expect(usage).toContain('default-cdn.css');
+    expect(usage).toContain('default-full.css');
+    expect(usage).toContain('--theme');
+  });
+
+  it('SC-12: default-full.css 완전 커버 테마 동봉·유효', async () => {
+    const fullPath = join(themesDir, 'default-full.css');
+    expect(existsSync(fullPath)).toBe(true);
+    const fullCss = readFileSync(fullPath, 'utf8');
+    expect(fullCss).not.toMatch(/jsdelivr|https?:|@import/);
+    expect(fullCss).toContain('@font-face');
+    expect(fullCss).toMatch(/src:\s*url\(data:font\/woff2;base64,/);
+    expect(fontlessRules(fullCss)).toBe(fontlessRules(defaultCss));
+
+    const resolved = await resolveTheme(fullPath);
+    expect(resolved).toMatch(/src:\s*url\(data:font\/woff2;base64,/);
   });
 });
