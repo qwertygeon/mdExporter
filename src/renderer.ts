@@ -21,8 +21,11 @@ export function createRenderer(
       if (!browser) browser = await launchBrowser();
       const page = await browser.newPage();
       try {
-        // networkidle: 웹폰트(Pretendard CDN) 로드 완료까지 대기
+        // networkidle: 원격 리소스(default-cdn.css 웹폰트·이미지 등) 로드 대기.
+        // 임베딩 폰트(data-URI)는 네트워크 요청이 없어 networkidle 이 즉시 만족되므로
+        // 디코드 완료까지 fonts.ready 로 별도 보강한다.
         await page.setContent(doc, { waitUntil: 'networkidle' });
+        await page.evaluate(() => document.fonts.ready);
         await page.pdf({
           path: outPath,
           format: pdf.format ?? 'A4',

@@ -10,6 +10,7 @@ mdExporter 로 Markdown 문서를 HTML·PDF 로 변환하는 방법을 설명한
 - [옵션](#옵션)
   - [--format](#--format)
   - [--theme](#--theme)
+    - [오프라인 폰트와 테마 변형](#오프라인-폰트와-테마-변형)
   - [--title](#--title)
   - [--out-dir](#--out-dir)
 - [문서 레이아웃 (opt-in)](#문서-레이아웃-opt-in)
@@ -94,6 +95,26 @@ mdexport 문서.md -t my-theme.css
 
 테마 작성·커스터마이즈는 [테마 가이드](THEMING.md) 참조.
 
+#### 오프라인 폰트와 테마 변형
+
+기본 테마(`themes/default.css`)는 한글 본문 폰트(Pretendard)를 파일에 직접 담아(base64 임베딩) 제공한다 — 네트워크 연결이 없거나 CDN 이 차단된 환경에서도 온라인과 동일한 한글 렌더를 보장한다. 이 임베딩 때문에 산출물(HTML/PDF) 크기가 경량 CDN 방식 대비 약 420KB 늘어난다.
+
+용도에 따라 다른 테마를 `--theme` 로 선택할 수 있다:
+
+| 테마 | 특징 | 크기 영향 |
+|---|---|---|
+| `themes/default.css` (기본, 미지정 시) | 상용 한글(2350자) + 영문 임베딩. 오프라인에서도 한글 시인성 보장 | 기본 대비 약 +420KB |
+| `themes/default-full.css` | 상용 범위를 넘는 현대 한글(11172자)까지 완전 커버 임베딩 | 기본 대비 약 +1.5MB |
+| `themes/default-cdn.css` | 폰트를 CDN 에서 원격 로드(임베딩 없음) — 온라인 환경·크기에 민감한 경우 | 폰트 자체 증가 없음(네트워크 필요) |
+
+```bash
+# 상용 범위를 넘는 희귀 한글까지 완전히 커버해야 하는 경우
+mdexport 문서.md --theme themes/default-full.css
+
+# 온라인 환경에서 산출물 크기를 최소화하려는 경우
+mdexport 문서.md --theme themes/default-cdn.css
+```
+
 ### --title
 
 `--title <title>` — HTML 산출물의 `<title>` 값. 지정하지 않으면 입력 파일명(확장자 제외)을 쓴다.
@@ -175,7 +196,7 @@ mdexport 문서.md -f pdf --header --footer --title "월간 보고서"
 | 증상 | 원인 · 해결 |
 |---|---|
 | PDF 생성 시 브라우저 관련 오류 | Chromium 미설치 — `npx playwright install chromium` 로 1회 설치 |
-| 한글이 기본 고딕으로 나옴 | 네트워크 차단으로 웹폰트(Pretendard) 로드 실패 → 시스템 폰트로 폴백된 것. 온라인에서 재시도 |
+| 한글이 기본 고딕으로 나옴 | 기본 테마는 상용 한글(2350자) 범위를 임베딩한다 — 그 범위 밖의 희귀 한자·인명 등 문자만 시스템 폰트로 폴백된다(폰트 임베딩과 무관한 정상 동작). 완전 커버가 필요하면 `--theme themes/default-full.css` 사용. `--theme themes/default-cdn.css` 로 CDN 방식을 쓰는 경우엔 네트워크 차단 시 시스템 폰트로 폴백된다 |
 | 표·코드 박스 배경이 PDF 에서 안 보임 | 기본 설정은 배경 인쇄 켜짐 — 커스텀 테마에서 배경을 제거하지 않았는지 확인 |
 | 스타일이 안 먹음 | `--theme` 경로가 실행 위치 기준으로 유효한지 확인 |
 | 표·코드가 페이지 경계에서 잘림 | 요소가 한 페이지보다 크면 불가피 — 내용을 나누거나 테마 폰트 크기를 조정 |
