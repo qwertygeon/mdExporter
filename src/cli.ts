@@ -14,6 +14,7 @@ interface CliOptions {
   date?: string;
   header?: boolean;
   footer?: boolean;
+  recursive?: boolean;
 }
 
 function resolveFormats(format: string): OutputFormat[] {
@@ -38,6 +39,7 @@ program
   .option('--date <date>', 'cover date (shown only when set)')
   .option('--header', 'PDF header with document title')
   .option('--footer', 'PDF footer with page numbers')
+  .option('-r, --recursive', 'recurse into subdirectories of directory inputs (skips dotfiles/node_modules)')
   .action(async (inputs: string[], opts: CliOptions) => {
     const formats: OutputFormat[] = resolveFormats(opts.format);
     let tocDepth: number | undefined;
@@ -57,6 +59,7 @@ program
       cover: opts.cover ? (opts.date ? { date: opts.date } : true) : undefined,
       header: opts.header,
       footer: opts.footer,
+      recursive: opts.recursive,
     });
     for (const out of outputs) console.log(`✓ ${out}`);
   });

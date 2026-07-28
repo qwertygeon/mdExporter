@@ -1,5 +1,5 @@
-import { readFile, mkdir, readdir, stat } from 'node:fs/promises';
-import { basename, extname, join, resolve, dirname } from 'node:path';
+import { readFile, mkdir, readdir, stat, realpath, writeFile, rm } from 'node:fs/promises';
+import { basename, extname, join, resolve, dirname, relative } from 'node:path';
 import type { ConvertContext, ConvertDeps, ConvertOptions, PdfOptions, TransformStage } from './types.js';
 import { createParser } from './parser.js';
 import { createRenderer } from './renderer.js';
@@ -79,9 +79,38 @@ export async function convert(options: ConvertOptions, deps: ConvertDeps = {}): 
   }
 }
 
-/** 입력 인자를 실제 파일 목록으로 확장: 디렉터리 → 그 안 `*.md`(비재귀), 파일 → 그대로. 중복 제거·정렬. */
-async function expandInputs(inputs: string[]): Promise<string[]> {
-  const files = new Set<string>();
+/** found 맵에 절대 파일경로가 아직 없을 때만 root 를 등록한다(dedup, first-wins root). */
+function setIfAbsent(found: Map<string, string>, file: string, root: string): void {
+  if (!found.has(file)) found.set(file, root);
+}
+
+/**
+ * 디렉터리 하위 트리를 재귀 순회해 `.md` 파일을 found 에 수집한다.
+ * `Dirent.isDirectory()` 는 심링크를 따르지 않아 디렉터리 심링크는 하강 대상에서 자연 제외되고,
+ * realpath 기반 visited 세트가 이를 이중으로 방어해 순환을 종료한다.
+ */
+async function walk(dir: string, root: string, visited: Set<string>, found: Map<string, string>): Promise<void> {
+  const real = await realpath(dir);
+  if (visited.has(real)) return;
+  visited.add(real);
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith('.')) continue;
+      if (entry.name === 'node_modules') continue;
+      await walk(join(dir, entry.name), root, visited, found);
+    } else if (entry.name.toLowerCase().endsWith('.md')) {
+      setIfAbsent(found, join(dir, entry.name), root);
+    }
+  }
+}
+
+/**
+ * 입력 인자를 실제 파일 목록으로 확장: 디렉터리 → 그 안 `*.md`(recursive=false 시 비재귀,
+ * recursive=true 시 하위 트리 전부), 파일 → 그대로. 중복 제거(절대 파일경로, first-wins root)·정렬.
+ * 반환 원소의 `root` 는 미러 출력 기준 discovery-root(파일 인자는 그 파일의 부모 디렉터리).
+ */
+async function expandInputs(inputs: string[], recursive: boolean): Promise<Array<{ file: string; root: string }>> {
+  const found = new Map<string, string>();
   for (const input of inputs) {
     const p = resolve(input);
     let st;
@@ -95,20 +124,82 @@ async function expandInputs(inputs: string[]): Promise<string[]> {
       throw err;
     }
     if (st.isDirectory()) {
-      for (const entry of await readdir(p, { withFileTypes: true })) {
-        // 이름이 .md 로 끝나는 하위 디렉터리를 파일로 오인하지 않는다(이후 readFile EISDIR 방지).
-        if (entry.isDirectory()) continue;
-        if (entry.name.toLowerCase().endsWith('.md')) files.add(join(p, entry.name));
+      if (recursive) {
+        await walk(p, p, new Set<string>(), found);
+      } else {
+        for (const entry of await readdir(p, { withFileTypes: true })) {
+          // 이름이 .md 로 끝나는 하위 디렉터리를 파일로 오인하지 않는다(이후 readFile EISDIR 방지).
+          if (entry.isDirectory()) continue;
+          if (entry.name.toLowerCase().endsWith('.md')) setIfAbsent(found, join(p, entry.name), p);
+        }
       }
     } else {
-      files.add(p);
+      setIfAbsent(found, p, dirname(p));
     }
   }
-  return [...files].sort();
+  return [...found].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([file, root]) => ({ file, root }));
+}
+
+/** dir 의 조상 중 실재하는 가장 가까운 디렉터리를 찾는다(아직 생성되지 않은 출력 하위 경로 대비). */
+async function nearestExistingDir(dir: string): Promise<string> {
+  let d = resolve(dir);
+  for (;;) {
+    try {
+      await stat(d);
+      return d;
+    } catch {
+      const parent = dirname(d);
+      if (parent === d) return d; // 루트 도달
+      d = parent;
+    }
+  }
+}
+
+let caseProbeCounter = 0;
+
+/**
+ * dir 이 속한 파일시스템이 대소문자를 구분하지 않는지 실측한다(mount 속성이라 device 단위 캐시).
+ * 임시 프로브 파일을 만들어 대소문자를 뒤집은 이름이 같은 inode 로 보이는지 확인하고 즉시 제거한다.
+ * 프로브 불가 시(권한 등) 플랫폼 기본값(macOS·Windows = 대소문자 무시)으로 안전하게 폴백한다.
+ */
+async function isCaseInsensitiveFs(dir: string, cache: Map<number, boolean>): Promise<boolean> {
+  const platformDefault = process.platform === 'darwin' || process.platform === 'win32';
+  const base = await nearestExistingDir(dir);
+  let dev: number;
+  try {
+    dev = (await stat(base)).dev;
+  } catch {
+    return platformDefault;
+  }
+  const cached = cache.get(dev);
+  if (cached !== undefined) return cached;
+
+  const name = `.mdexport-Case-Probe-${process.pid}-${caseProbeCounter++}`;
+  const upper = join(base, name);
+  const lower = join(base, name.toLowerCase());
+  let result: boolean;
+  try {
+    await writeFile(upper, '');
+    try {
+      const a = await stat(upper);
+      const b = await stat(lower);
+      result = a.ino === b.ino; // 뒤집은 이름이 같은 파일 → 대소문자 무시
+    } catch {
+      result = false; // 뒤집은 이름이 없음 → 대소문자 구분
+    }
+  } catch {
+    result = platformDefault; // 프로브 파일 생성 실패 → 플랫폼 기본값
+  } finally {
+    await rm(upper, { force: true });
+  }
+  cache.set(dev, result);
+  return result;
 }
 
 /**
- * 여러 markdown 입력을 일괄 변환한다. 디렉터리 입력은 그 안 `*.md`(비재귀)로 확장한다.
+ * 여러 markdown 입력을 일괄 변환한다. 디렉터리 입력은 `options.recursive` 에 따라
+ * 비재귀(그 안 `*.md`만) 또는 하위 트리 전부로 확장된다. 재귀 시 `--out-dir` 아래에
+ * 스캔 루트 기준 상대경로를 그대로 미러링해 하위 구조를 보존한다(비재귀·`--out-dir` 미지정 시 기존 동작 불변).
  * PDF 렌더러(브라우저)를 전 입력에 재사용하고 종료 시 1회 정리한다(deps.renderer 미공급 시).
  * 반환값은 생성된 산출물 경로 전체 목록.
  */
@@ -117,23 +208,33 @@ export async function convertMany(
   options: Omit<ConvertOptions, 'input'> = {},
   deps: ConvertDeps = {},
 ): Promise<string[]> {
-  const files = await expandInputs(inputs);
+  const expanded = await expandInputs(inputs, options.recursive ?? false);
   // 매칭 0건을 성공(무동작)으로 흡수하지 않는다 — 변환 대상 부재는 필수 입력 실패로 전파한다.
-  if (files.length === 0) {
+  if (expanded.length === 0) {
     throw new Error(
       `변환할 markdown(.md) 파일이 없습니다 (입력: ${inputs.join(', ')}). 디렉터리에 .md 파일이 있는지 확인하세요.`,
     );
   }
+  // per-file 미러 출력 디렉터리를 한 번만 계산해 충돌검사·convert 호출 양쪽에 동일 값으로 재사용한다.
+  const entries = expanded.map(({ file, root }) => ({
+    file,
+    effectiveOutDir: options.outDir ? join(resolve(options.outDir), relative(root, dirname(file))) : undefined,
+  }));
   // 산출 경로 충돌 사전 감지: 서로 다른 입력이 같은 출력 경로로 써지면 앞선 산출물이 조용히 유실되므로 차단한다.
-  // (예: 서로 다른 폴더의 동명 파일을 하나의 --out-dir 로 모으는 경우)
+  // (예: 서로 다른 폴더의 동명 파일을 하나의 --out-dir 로 모으는 경우. 미러 경로 기준이라 서로 다른 하위
+  // 폴더의 동명 파일은 충돌로 오탐하지 않는다.)
   const outSeen = new Map<string, string>();
-  for (const file of files) {
-    const targetDir = options.outDir ? resolve(options.outDir) : dirname(file);
-    const outKey = join(targetDir, basename(file, extname(file)));
+  const caseInsensitiveByDev = new Map<number, boolean>();
+  for (const { file, effectiveOutDir } of entries) {
+    const keyDir = effectiveOutDir ?? dirname(file);
+    const rawKey = join(keyDir, basename(file, extname(file)));
+    // 대소문자 무시 파일시스템(macOS·Windows 기본)에서는 대소문자만 다른 출력 경로가 디스크에서 같은
+    // 파일로 조용히 덮어써진다 → 그 경우에만 키를 소문자로 접어 충돌로 감지한다(대소문자 구분 FS 오탐 방지).
+    const outKey = (await isCaseInsensitiveFs(keyDir, caseInsensitiveByDev)) ? rawKey.toLowerCase() : rawKey;
     const prev = outSeen.get(outKey);
     if (prev) {
       throw new Error(
-        `출력 경로 충돌: "${prev}" 와 "${file}" 가 모두 "${outKey}.{html,pdf}" 로 써집니다. ` +
+        `출력 경로 충돌: "${prev}" 와 "${file}" 가 모두 "${rawKey}.{html,pdf}" 로 써집니다. ` +
           `--out-dir 를 나누거나 입력 파일명을 구분하세요.`,
       );
     }
@@ -142,17 +243,17 @@ export async function convertMany(
   // --title 무시 판정은 CLI 원시 인자 수가 아니라 확장 후 파일 개수 기준 —
   // 단일 디렉터리 입력도 여러 파일로 펼쳐지면 문서마다 같은 제목을 강제하게 되므로.
   let title = options.title;
-  if (files.length > 1 && title !== undefined) {
-    console.warn(`⚠ 입력이 ${files.length}개라 --title "${title}" 을 무시하고 각 파일명을 제목으로 사용합니다.`);
+  if (entries.length > 1 && title !== undefined) {
+    console.warn(`⚠ 입력이 ${entries.length}개라 --title "${title}" 을 무시하고 각 파일명을 제목으로 사용합니다.`);
     title = undefined;
   }
   const ownRenderer = !deps.renderer;
   const renderer = deps.renderer ?? (deps.createRenderer ?? createRenderer)();
   const outputs: string[] = [];
   try {
-    for (const file of files) {
+    for (const { file, effectiveOutDir } of entries) {
       // renderer 를 deps 로 넘겨 convert 가 dispose 하지 않게 한다(convertMany 가 소유·정리).
-      const outs = await convert({ ...options, title, input: file }, { ...deps, renderer });
+      const outs = await convert({ ...options, title, input: file, outDir: effectiveOutDir }, { ...deps, renderer });
       outputs.push(...outs);
     }
     return outputs;

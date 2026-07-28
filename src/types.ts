@@ -31,6 +31,8 @@ export interface ConvertOptions {
   header?: boolean;
   /** PDF 푸터(페이지 번호) — PDF 전용 */
   footer?: boolean;
+  /** 디렉터리 입력을 하위 트리까지 순회. convertMany 만 소비(convert 는 무시). 기본 undefined(=비재귀) */
+  recursive?: boolean;
 }
 
 export type OutputFormat = 'html' | 'pdf';

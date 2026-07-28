@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, rmSync, symlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { convert, convertMany } from '../src/convert.js';
 import { createRenderer } from '../src/renderer.js';
@@ -337,6 +337,42 @@ describe('convertMany 출력 충돌·디렉터리 엔트리 (PR #3 재리뷰 후
       convertMany([join(tmpdir(), 'mdexporter-no-such-file-xyz.md')], { formats: ['html'] }, { renderer }),
     ).rejects.toThrow(/입력 경로를 찾을 수 없습니다/);
   });
+
+  it('대소문자만 다른 출력 경로: 대소문자 무시 FS 에서만 충돌 감지(구분 FS 에선 정상 변환)', async () => {
+    const base = join(tmpdir(), 'mdexporter-case-collide');
+    rmSync(base, { recursive: true, force: true });
+    mkdirSync(base, { recursive: true });
+    writeFileSync(join(base, 'Guide.md'), '# Upper\n', 'utf8');
+    writeFileSync(join(base, 'guide.md'), '# Lower\n', 'utf8');
+
+    // 이 파일시스템이 대소문자를 구분하는지 실측(구현의 런타임 프로브와 동일 원리)
+    let caseInsensitive: boolean;
+    try {
+      const probe = join(base, 'CaseProbe.tmp');
+      writeFileSync(probe, '');
+      caseInsensitive = existsSync(join(base, 'caseprobe.tmp'));
+      rmSync(probe, { force: true });
+    } catch {
+      caseInsensitive = process.platform === 'darwin' || process.platform === 'win32';
+    }
+
+    const run = () =>
+      convertMany(
+        [join(base, 'Guide.md'), join(base, 'guide.md')],
+        { formats: ['html'], outDir: join(base, 'out') },
+        { renderer: captureRenderer().renderer },
+      );
+
+    if (caseInsensitive) {
+      // Guide/guide 가 디스크에서 같은 파일 → 조용한 덮어쓰기 대신 충돌로 차단
+      await expect(run()).rejects.toThrow(/출력 경로 충돌/);
+    } else {
+      // 대소문자 구분 FS 에서는 둘 다 정당한 별개 파일 → 오탐 없이 각각 변환
+      const outs = await run();
+      expect(outs.length).toBe(2);
+    }
+    rmSync(base, { recursive: true, force: true });
+  });
 });
 
 describe('createRenderer 브라우저 재사용 (v0.3.0)', () => {
@@ -356,5 +392,182 @@ describe('createRenderer 브라우저 재사용 (v0.3.0)', () => {
     expect(pages).toBe(2);
     await r.dispose!();
     expect(closes).toBe(1);
+  });
+});
+
+// 심링크 생성 가능 여부를 모듈 로드 시점에 1회 probe. 미지원 환경(권한 제약 등)에서는
+// SC-6 을 skip 처리한다 — 실패가 아니라 그 환경에서 검증 불가능한 전제 조건이기 때문.
+let symlinkSupported = true;
+try {
+  const probeDir = join(tmpdir(), 'mdexporter-symlink-probe');
+  rmSync(probeDir, { recursive: true, force: true });
+  mkdirSync(probeDir, { recursive: true });
+  symlinkSync(probeDir, join(probeDir, 'self'), 'dir');
+  rmSync(probeDir, { recursive: true, force: true });
+} catch {
+  symlinkSupported = false;
+}
+
+describe('재귀 순회 (v0.3.0 002)', () => {
+  it('SC-1: -r 하위 트리 전부 변환', async () => {
+    const dir = join(tmpdir(), 'mdexporter-recursive-sc1');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'sub', 'deep'), { recursive: true });
+    writeFileSync(join(dir, 'a.md'), '# A\n', 'utf8');
+    writeFileSync(join(dir, 'sub', 'b.md'), '# B\n', 'utf8');
+    writeFileSync(join(dir, 'sub', 'deep', 'c.md'), '# C\n', 'utf8');
+    const { renderer } = captureRenderer();
+    const outs = await convertMany([dir], { recursive: true, formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(3);
+    expect(outs.some((o) => o.endsWith('a.html'))).toBe(true);
+    expect(outs.some((o) => o.endsWith(join('sub', 'b.html')))).toBe(true);
+    expect(outs.some((o) => o.endsWith(join('sub', 'deep', 'c.html')))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('SC-2: 미지정 시 최상위만 변환 (비재귀 회귀 없음)', async () => {
+    const dir = join(tmpdir(), 'mdexporter-recursive-sc2');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'sub'), { recursive: true });
+    writeFileSync(join(dir, 'a.md'), '# A\n', 'utf8');
+    writeFileSync(join(dir, 'sub', 'b.md'), '# B\n', 'utf8');
+    const { renderer } = captureRenderer();
+    const outs = await convertMany([dir], { formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(1);
+    expect(outs[0].endsWith('a.html')).toBe(true);
+    expect(outs.some((o) => o.endsWith('b.html'))).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('SC-3: --out-dir + 재귀 → 스캔 루트 기준 상대경로 미러 재구성', async () => {
+    const dir = join(tmpdir(), 'mdexporter-recursive-sc3');
+    const build = join(tmpdir(), 'mdexporter-recursive-sc3-build');
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(build, { recursive: true, force: true });
+    mkdirSync(join(dir, 'sub', 'deep'), { recursive: true });
+    writeFileSync(join(dir, 'sub', 'deep', 'x.md'), '# X\n', 'utf8');
+    const { renderer } = captureRenderer();
+    const outs = await convertMany([dir], { recursive: true, outDir: build, formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(1);
+    // 평탄화(build/x.html)가 아니라 하위 경로가 보존됨을 확인
+    expect(outs[0].endsWith(join('sub', 'deep', 'x.html'))).toBe(true);
+    expect(outs[0]).not.toBe(join(build, 'x.html'));
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(build, { recursive: true, force: true });
+  });
+
+  it('SC-4: --out-dir 미지정 + 재귀 = 산출물이 소스 파일과 같은 폴더', async () => {
+    const dir = join(tmpdir(), 'mdexporter-recursive-sc4');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'sub'), { recursive: true });
+    writeFileSync(join(dir, 'sub', 'x.md'), '# X\n', 'utf8');
+    const { renderer } = captureRenderer();
+    const outs = await convertMany([dir], { recursive: true, formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(1);
+    expect(outs[0]).toBe(join(dir, 'sub', 'x.html'));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('SC-5: 서로 다른 하위 폴더의 동명 파일은 미러 출력에서 충돌하지 않는다', async () => {
+    const dir = join(tmpdir(), 'mdexporter-recursive-sc5');
+    const build = join(tmpdir(), 'mdexporter-recursive-sc5-build');
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(build, { recursive: true, force: true });
+    mkdirSync(join(dir, 'x'), { recursive: true });
+    mkdirSync(join(dir, 'y'), { recursive: true });
+    writeFileSync(join(dir, 'x', 'README.md'), '# X\n', 'utf8');
+    writeFileSync(join(dir, 'y', 'README.md'), '# Y\n', 'utf8');
+    const { renderer } = captureRenderer();
+    const outs = await convertMany([dir], { recursive: true, outDir: build, formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(2);
+    expect(outs.some((o) => o === join(build, 'x', 'README.html'))).toBe(true);
+    expect(outs.some((o) => o === join(build, 'y', 'README.html'))).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(build, { recursive: true, force: true });
+  });
+
+  it.skipIf(!symlinkSupported)('SC-6: 순환 디렉터리 심링크가 있어도 유한 시간에 종료하고 중복 방문 없음', async () => {
+    const dir = join(tmpdir(), 'mdexporter-recursive-sc6');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'a.md'), '# A\n', 'utf8');
+    symlinkSync(dir, join(dir, 'loop'), 'dir'); // dir/loop -> dir (순환)
+    const { renderer } = captureRenderer();
+    // vitest 기본 타임아웃이 이미 무한루프에 대한 방어망 — 여기선 정상 resolve + 중복 없음만 확인.
+    const outs = await convertMany([dir], { recursive: true, formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(1);
+    expect(outs[0]).toBe(join(dir, 'a.html'));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('SC-7: dot-디렉터리·node_modules 는 순회 대상에서 제외된다', async () => {
+    const dir = join(tmpdir(), 'mdexporter-recursive-sc7');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, '.hidden'), { recursive: true });
+    mkdirSync(join(dir, 'node_modules'), { recursive: true });
+    writeFileSync(join(dir, '.hidden', 'h.md'), '# H\n', 'utf8');
+    writeFileSync(join(dir, 'node_modules', 'n.md'), '# N\n', 'utf8');
+    writeFileSync(join(dir, 'a.md'), '# A\n', 'utf8');
+    const { renderer } = captureRenderer();
+    const outs = await convertMany([dir], { recursive: true, formats: ['html'] }, { renderer });
+    expect(outs.length).toBe(1);
+    expect(outs[0].endsWith('a.html')).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('SC-8: 재귀 스캔 결과 .md 0건이면 에러를 전파한다', async () => {
+    const dir = join(tmpdir(), 'mdexporter-recursive-sc8');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'sub'), { recursive: true });
+    writeFileSync(join(dir, 'sub', 'not-markdown.txt'), 'x', 'utf8');
+    const { renderer } = captureRenderer();
+    await expect(
+      convertMany([dir], { recursive: true, formats: ['html'] }, { renderer }),
+    ).rejects.toThrow(/markdown.*파일이 없습니다/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('SC-9: 존재하지 않는 입력 경로는 재귀 지정 시에도 친절 에러를 유지한다', async () => {
+    const { renderer } = captureRenderer();
+    await expect(
+      convertMany(
+        [join(tmpdir(), 'mdexporter-recursive-nope')],
+        { recursive: true, formats: ['html'] },
+        { renderer },
+      ),
+    ).rejects.toThrow(/입력 경로를 찾을 수 없습니다/);
+  });
+
+  it('SC-10: 재귀로 새로 선택된 하위 경로 파일도 원문 내용을 보존한다', async () => {
+    const dir = join(tmpdir(), 'mdexporter-recursive-sc10');
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(join(dir, 'sub'), { recursive: true });
+    const marker = 'UNIQUE-RECURSIVE-CONTENT-9f3a2c';
+    writeFileSync(join(dir, 'sub', 'b.md'), `# B\n\n${marker}\n`, 'utf8');
+    const { renderer, docs } = captureRenderer();
+    await convertMany([dir], { recursive: true, formats: ['html'] }, { renderer });
+    expect(docs.join('\n')).toContain(marker);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('재귀 순회 정적 검증 (v0.3.0 002, SC-11·SC-12)', () => {
+  it('SC-11: 재귀 구현이 신규 런타임 의존성을 추가하지 않는다 (node:fs 만 사용)', () => {
+    const pkgPath = join(here, '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { dependencies: Record<string, string> };
+    // 재귀 도입 전 3개(commander·markdown-it·playwright) 그대로 — glob 계열 신규 의존성 0건.
+    expect(Object.keys(pkg.dependencies).sort()).toEqual(['commander', 'markdown-it', 'playwright']);
+
+    const src = readFileSync(join(here, '..', 'src', 'convert.ts'), 'utf8');
+    expect(src).not.toMatch(/from ['"](fast-glob|glob|globby|fdir|klaw|readdirp)['"]/);
+  });
+
+  it('SC-12: USAGE.md 에 --recursive/-r 사용법과 dot-디렉터리·node_modules 스킵 규칙이 명시된다', () => {
+    const usage = readFileSync(join(here, '..', 'docs', 'USAGE.md'), 'utf8');
+    expect(usage).toContain('--recursive');
+    expect(usage).toMatch(/-r\b/);
+    expect(usage).toContain('node_modules');
+    // dot-디렉터리 스킵 규칙 문구(spec FR-6 계승 표현 중 하나) 존재 확인.
+    expect(usage).toMatch(/점\(\.\)|dot-디렉터리|\(dot\)|\.\s*으로\s*시작하는 디렉터리|숨김 디렉터리/);
   });
 });
