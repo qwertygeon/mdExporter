@@ -220,25 +220,41 @@ export async function convertMany(
     file,
     effectiveOutDir: options.outDir ? join(resolve(options.outDir), relative(root, dirname(file))) : undefined,
   }));
-  // 산출 경로 충돌 사전 감지: 서로 다른 입력이 같은 출력 경로로 써지면 앞선 산출물이 조용히 유실되므로 차단한다.
-  // (예: 서로 다른 폴더의 동명 파일을 하나의 --out-dir 로 모으는 경우. 미러 경로 기준이라 서로 다른 하위
-  // 폴더의 동명 파일은 충돌로 오탐하지 않는다.)
-  const outSeen = new Map<string, string>();
-  const caseInsensitiveByDev = new Map<number, boolean>();
+  // 산출 경로 충돌 사전 감지(2-pass): 서로 다른 입력이 같은 출력 경로로 써지면 앞선 산출물이 조용히
+  // 유실되므로 차단한다(예: 서로 다른 폴더의 동명 파일을 하나의 --out-dir 로 모으는 경우. 미러 경로
+  // 기준이라 서로 다른 하위 폴더의 동명 파일은 오탐하지 않는다).
+  // Pass 1(I/O 0): 원본 대소문자 그대로의 정확 충돌을 전 플랫폼에서 잡고, 대소문자만 다른 후보만 그룹핑.
+  // Pass 2(프로브는 여기서만): 그런 후보가 실제로 있을 때만 파일시스템 대소문자 구분 여부를 실측한다
+  // — 대소문자 무시 FS(macOS·Windows)는 같은 파일로 덮어써지므로 충돌, 구분 FS 는 정당한 별개 파일.
+  // 단일 파일·대소문자 충돌 없는 일반 변환에서는 프로브가 발생하지 않는다.
+  const exactSeen = new Map<string, string>();
+  const foldedGroups = new Map<string, Array<{ file: string; keyDir: string; rawKey: string }>>();
   for (const { file, effectiveOutDir } of entries) {
     const keyDir = effectiveOutDir ?? dirname(file);
     const rawKey = join(keyDir, basename(file, extname(file)));
-    // 대소문자 무시 파일시스템(macOS·Windows 기본)에서는 대소문자만 다른 출력 경로가 디스크에서 같은
-    // 파일로 조용히 덮어써진다 → 그 경우에만 키를 소문자로 접어 충돌로 감지한다(대소문자 구분 FS 오탐 방지).
-    const outKey = (await isCaseInsensitiveFs(keyDir, caseInsensitiveByDev)) ? rawKey.toLowerCase() : rawKey;
-    const prev = outSeen.get(outKey);
+    const prev = exactSeen.get(rawKey);
     if (prev) {
       throw new Error(
         `출력 경로 충돌: "${prev}" 와 "${file}" 가 모두 "${rawKey}.{html,pdf}" 로 써집니다. ` +
           `--out-dir 를 나누거나 입력 파일명을 구분하세요.`,
       );
     }
-    outSeen.set(outKey, file);
+    exactSeen.set(rawKey, file);
+    const folded = rawKey.toLowerCase();
+    const group = foldedGroups.get(folded);
+    if (group) group.push({ file, keyDir, rawKey });
+    else foldedGroups.set(folded, [{ file, keyDir, rawKey }]);
+  }
+  const caseInsensitiveByDev = new Map<number, boolean>();
+  for (const group of foldedGroups.values()) {
+    // 정확 충돌은 Pass 1 에서 이미 throw 됐으므로, 원소가 2개 이상이면 대소문자만 다른 후보다.
+    if (group.length < 2) continue;
+    if (await isCaseInsensitiveFs(group[0].keyDir, caseInsensitiveByDev)) {
+      throw new Error(
+        `출력 경로 충돌: "${group[0].file}" 와 "${group[1].file}" 가 대소문자 무시 파일시스템에서 모두 ` +
+          `"${group[1].rawKey}.{html,pdf}" 로 써집니다. --out-dir 를 나누거나 입력 파일명을 구분하세요.`,
+      );
+    }
   }
   // --title 무시 판정은 CLI 원시 인자 수가 아니라 확장 후 파일 개수 기준 —
   // 단일 디렉터리 입력도 여러 파일로 펼쳐지면 문서마다 같은 제목을 강제하게 되므로.
