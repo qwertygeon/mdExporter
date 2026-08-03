@@ -1,0 +1,60 @@
+{
+  "name": "mdexporter",
+  "version": "0.3.0",
+  "description": "Markdown → HTML/PDF exporter with a pluggable theme, preserving source content.",
+  "keywords": [
+    "markdown",
+    "pdf",
+    "html",
+    "converter",
+    "exporter",
+    "markdown-to-pdf",
+    "korean",
+    "cli"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "author": "sgeon (https://github.com/qwertygeon)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qwertygeon/mdExporter.git"
+  },
+  "homepage": "https://github.com/qwertygeon/mdExporter#readme",
+  "bugs": {
+    "url": "https://github.com/qwertygeon/mdExporter/issues"
+  },
+  "bin": {
+    "mdexport": "dist/cli.js"
+  },
+  "main": "dist/convert.js",
+  "types": "dist/convert.d.ts",
+  "files": [
+    "dist",
+    "themes",
+    "!themes/fonts/*.woff2",
+    "docs/USAGE.md",
+    "docs/THEMING.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "mdexport": "node dist/cli.js",
+    "prepare": "node scripts/prepare.mjs",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "markdown-it": "^14.1.0",
+    "playwright": "^1.44.0"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.0",
+    "@types/node": "^20.12.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}

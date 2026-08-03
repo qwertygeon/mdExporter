@@ -1,0 +1,194 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+
+:root {
+  --ink: #1f2937;
+  --muted: #64748b;
+  --accent: #2563eb;
+  --accent-dark: #1e40af;
+  --line: #e2e8f0;
+  --bg-soft: #f8fafc;
+  --bg-code: #f6f8fa;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Pretendard Variable', Pretendard, 'Apple SD Gothic Neo', 'Noto Sans KR', -apple-system, sans-serif;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.75;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 2.2em 1.5em 3em;
+  word-break: keep-all;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- 헤딩 ---------- */
+h1 {
+  font-size: 1.9em;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  margin: 0 0 0.9em;
+  padding-bottom: 0.5em;
+  border-bottom: 3px solid var(--accent);
+}
+
+h2 {
+  font-size: 1.35em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2.2em 0 0.8em;
+  padding: 0.15em 0 0.15em 0.6em;
+  border-left: 5px solid var(--accent);
+  color: #111827;
+  break-after: avoid;
+}
+
+h3 {
+  font-size: 1.08em;
+  font-weight: 700;
+  margin: 1.6em 0 0.5em;
+  color: var(--accent-dark);
+  break-after: avoid;
+}
+
+/* ---------- 본문 요소 ---------- */
+p { margin: 0.6em 0 0.9em; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+strong { font-weight: 700; color: #0f172a; }
+
+ul, ol { padding-left: 1.4em; margin: 0.5em 0 1em; }
+li { margin: 0.25em 0; }
+li > ul, li > ol { margin: 0.2em 0; }
+
+hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 2.4em 0;
+}
+
+/* ---------- 표 ---------- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0 1.4em;
+  font-size: 0.94em;
+  break-inside: avoid;
+}
+
+th {
+  background: #eef2f9;
+  color: #1e293b;
+  font-weight: 700;
+  text-align: left;
+  padding: 9px 13px;
+  border: 1px solid #d7dfe9;
+}
+
+td {
+  padding: 8px 13px;
+  border: 1px solid var(--line);
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) { background: var(--bg-soft); }
+
+/* ---------- 코드 ---------- */
+code, pre {
+  font-family: 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'Nanum Gothic Coding', monospace;
+}
+
+code {
+  background: #eef2f7;
+  color: #0f3060;
+  font-size: 0.88em;
+  padding: 0.15em 0.42em;
+  border-radius: 4px;
+}
+
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 17px;
+  overflow-x: auto;
+  line-height: 1.55;
+  margin: 0.8em 0 1.3em;
+  break-inside: avoid;
+}
+
+pre code {
+  background: none;
+  color: #24292f;
+  padding: 0;
+  font-size: 0.86em;
+}
+
+/* ---------- 인용(콜아웃) ---------- */
+blockquote {
+  margin: 1em 0 1.3em;
+  padding: 0.75em 1.1em;
+  background: #f0f6ff;
+  border-left: 5px solid #3b82f6;
+  border-radius: 0 8px 8px 0;
+  color: #334155;
+  break-inside: avoid;
+}
+
+blockquote p { margin: 0.3em 0; }
+
+/* ---------- 표지 (--cover) ---------- */
+.cover {
+  min-height: 62vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  break-after: page;
+}
+
+.cover-title {
+  font-size: 2.6em;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  border-bottom: none;
+  margin: 0 0 0.3em;
+  padding: 0;
+}
+
+.cover-date {
+  color: var(--muted);
+  font-size: 1.05em;
+  margin: 0;
+}
+
+/* ---------- 목차 (--toc) ---------- */
+.toc {
+  margin: 0 0 2em;
+  padding: 1em 1.3em;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  break-after: page;
+  break-inside: avoid;
+}
+
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc li { margin: 0.3em 0; }
+.toc a { color: var(--ink); text-decoration: none; }
+.toc a:hover { color: var(--accent); text-decoration: underline; }
+.toc-l3 { padding-left: 1.3em; font-size: 0.95em; }
+.toc-l4 { padding-left: 2.6em; font-size: 0.92em; }
+.toc-l5 { padding-left: 3.9em; font-size: 0.9em; }
+.toc-l6 { padding-left: 5.2em; font-size: 0.9em; }
+
+/* ---------- 인쇄(PDF) ---------- */
+@media print {
+  body { font-size: 10.5pt; max-width: none; padding: 0; }
+  a { color: var(--accent-dark); }
+  pre, code { font-size: 0.85em; }
+}

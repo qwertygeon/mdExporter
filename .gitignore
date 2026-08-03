@@ -1,0 +1,29 @@
+# ── 비공개 (public 추적 금지 · 로컬 보존 + private 백업 레포로만 관리) ──
+/CLAUDE.md
+/.claude/
+/docs/_internal/
+/docs/specs/
+
+# 비공개 백업용 별도 git 저장소 (방식 1 — 워킹트리 공유, private 원격만 push)
+/.git-private/
+
+# AI workspace (pipeline 실행 로그·기록 — SPEC_ROOT 하위)
+_ai-workspace/
+
+# OS / Tool crash dumps
+*.stackdump
+core.*
+
+# OS
+.DS_Store
+
+# Node
+node_modules/
+dist/
+
+# 변환 스크래치 산출물 (루트 한정 — 저장소에 두려는 html/pdf 자산은 다른 경로에서 추적 가능)
+/*.pdf
+/*.html
+
+# 로컬 테스트용 예시 문서 (추적 제외)
+/examples/
