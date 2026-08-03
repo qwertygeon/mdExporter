@@ -36,13 +36,16 @@ Markdown 문서를 **문구 변경 없이** 시인성 좋은 HTML·PDF 로 변�
 
 ## 설치
 
-현재 소스에서 빌드해 사용한다.
+```bash
+npm install -g mdexporter
+```
+
+소스에서 빌드해 쓰려면:
 
 ```bash
 git clone https://github.com/qwertygeon/mdExporter.git
 cd mdExporter
 npm install
-npm run build
 ```
 
 전역 명령 `mdexport` 로 쓰려면 `npm link` 를, 아니면 `node dist/cli.js` 를 사용한다.
@@ -51,10 +54,10 @@ npm run build
 
 ```bash
 # HTML + PDF 둘 다 생성 (입력 파일과 같은 폴더에)
-node dist/cli.js 문서.md
+mdexport 문서.md
 
 # HTML 만
-node dist/cli.js 문서.md --format html
+mdexport 문서.md --format html
 ```
 
 산출물은 기본적으로 입력 파일과 같은 폴더에 같은 이름(`.html`/`.pdf`)으로 생성된다.
@@ -87,22 +90,22 @@ mdexport <입력...> [옵션]
 
 ```bash
 # 제목을 지정해 HTML+PDF 생성
-node dist/cli.js report.md --title "월간 보고서"
+mdexport report.md --title "월간 보고서"
 
 # 커스텀 테마로 PDF 만, 다른 폴더에 출력
-node dist/cli.js report.md -f pdf -t my-theme.css -o out/
+mdexport report.md -f pdf -t my-theme.css -o out/
 
 # 표지·목차·헤더/푸터를 갖춘 PDF
-node dist/cli.js report.md -f pdf --cover --date 2026-07-24 --toc --header --footer --title "월간 보고서"
+mdexport report.md -f pdf --cover --date 2026-07-24 --toc --header --footer --title "월간 보고서"
 
 # 여러 문서를 한 번에 (shell glob) — PDF 는 브라우저 재사용
-node dist/cli.js docs/*.md -f pdf -o out/
+mdexport docs/*.md -f pdf -o out/
 
 # 디렉터리 안의 모든 .md 를 HTML 로
-node dist/cli.js ./my-docs -f html -o out/
+mdexport ./my-docs -f html -o out/
 
 # 하위 폴더까지 전부, 입력 구조 그대로 미러링해 출력
-node dist/cli.js ./my-docs -r -f html -o out/
+mdexport ./my-docs -r -f html -o out/
 ```
 
 ## 문서
