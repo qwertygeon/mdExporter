@@ -33,6 +33,11 @@ export interface ConvertOptions {
   footer?: boolean;
   /** 디렉터리 입력을 하위 트리까지 순회. convertMany 만 소비(convert 는 무시). 기본 undefined(=비재귀) */
   recursive?: boolean;
+  /**
+   * 로컬 이미지를 data URI 로 본문에 인라인. 기본 true.
+   * false 면 원본 src 를 유지한다 — 산출물이 작아지는 대신 PDF·다른 폴더 출력에서 이미지가 보이지 않는다.
+   */
+  embedImages?: boolean;
 }
 
 export type OutputFormat = 'html' | 'pdf';
@@ -48,9 +53,23 @@ export interface ConvertContext {
 /** 본문 HTML 을 가공하는 확장 훅 (예: 후속 spec 의 목차·표지 주입) */
 export type TransformStage = (bodyHtml: string, ctx: ConvertContext) => string;
 
+/** 이미지 참조 → data URI. 임베딩된 것만 담긴다(원격·미지원·미발견은 부재). */
+export type ImageAssets = ReadonlyMap<string, string>;
+
+/** 본문 이미지 참조 조사 결과 */
+export interface ImageScan {
+  /** 이미지 문법으로 등장한 src 값 (원격 포함 — 임베딩 대상 선별은 자산 해석 단계가 한다) */
+  refs: string[];
+  /** 원시 HTML `<img>` 개수. 파서 렌더 규칙이 닿지 않아 임베딩 대상 밖이다 */
+  rawHtmlImages: number;
+}
+
 /** markdown → 본문 HTML */
 export interface Parser {
-  render(markdown: string): string;
+  /** assets 가 주어지면 해당 이미지 참조를 data URI 로 치환해 렌더한다. */
+  render(markdown: string, assets?: ImageAssets): string;
+  /** 본문 이미지 참조 조사. 미구현 시 convert 는 이미지 임베딩을 건너뛴다. */
+  scanImages?(markdown: string): ImageScan;
 }
 
 /** 조립된 HTML 문서 → 산출물 */

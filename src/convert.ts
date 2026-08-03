@@ -1,11 +1,20 @@
 import { readFile, mkdir, readdir, stat, realpath, writeFile, rm } from 'node:fs/promises';
 import { basename, extname, join, resolve, dirname, relative } from 'node:path';
-import type { ConvertContext, ConvertDeps, ConvertOptions, PdfOptions, TransformStage } from './types.js';
+import type {
+  ConvertContext,
+  ConvertDeps,
+  ConvertOptions,
+  ImageAssets,
+  Parser,
+  PdfOptions,
+  TransformStage,
+} from './types.js';
 import { createParser } from './parser.js';
 import { createRenderer } from './renderer.js';
 import { resolveTheme } from './theme.js';
 import { assembleDocument } from './template.js';
 import { tocStage, coverStage, pdfHeaderTemplate, pdfFooterTemplate } from './layout.js';
+import { loadImageAssets } from './images.js';
 
 const HF_MARGIN = { top: '22mm', bottom: '22mm', left: '15mm', right: '15mm' };
 
@@ -19,6 +28,53 @@ function buildPdfOptions(options: ConvertOptions, title: string): PdfOptions {
     pdf.margin = pdf.margin ?? HF_MARGIN;
   }
   return pdf;
+}
+
+/**
+ * 본문의 로컬 이미지를 data URI 로 인라인할 자산 Map 을 만든다.
+ * 임베딩하지 않으면 PDF 는 base URL 이 없어(setContent) 상대경로 이미지를 전부 잃고,
+ * HTML 도 `--out-dir` 로 다른 폴더에 쓰면 경로가 어긋난다.
+ *
+ * 읽지 못한 참조·지원하지 않는 확장자는 경고만 하고 원본 src 를 남긴다 — 개별 이미지는
+ * 문서 산출의 필수 입력이 아니므로 문서 전체 변환을 실패시키지 않는다(침묵은 하지 않는다).
+ */
+async function resolveImageAssets(
+  parser: Parser,
+  markdown: string,
+  inputPath: string,
+  embed: boolean,
+): Promise<ImageAssets | undefined> {
+  if (!embed || !parser.scanImages) return undefined;
+  const warn = (message: string) => console.warn(`경고: ${inputPath} — ${message}`);
+
+  const scan = parser.scanImages(markdown);
+  if (scan.rawHtmlImages > 0) {
+    warn(
+      `원시 HTML <img> ${scan.rawHtmlImages}개는 임베딩 대상이 아닙니다(markdown 이미지 문법 ![](경로) 로 쓰면 임베딩됩니다).`,
+    );
+  }
+  if (scan.refs.length === 0) return undefined;
+
+  const result = await loadImageAssets(scan.refs, dirname(inputPath));
+  for (const { ref, code } of result.missing) {
+    warn(
+      code && code !== 'ENOENT'
+        ? `이미지를 읽을 수 없습니다(${code}): ${ref}`
+        : `이미지를 찾을 수 없습니다: ${ref}`,
+    );
+  }
+  for (const ref of result.unsupported) {
+    warn(`이미지 확장자가 아니라 임베딩하지 않았습니다: ${ref}`);
+  }
+  for (const ref of result.empty) {
+    warn(`이미지 파일이 비어 있습니다(0바이트): ${ref}`);
+  }
+  for (const ref of result.caseMismatch) {
+    warn(
+      `참조의 대소문자가 실제 파일명과 다릅니다: ${ref} — 대소문자를 구분하는 환경(리눅스 등)에서는 찾지 못합니다.`,
+    );
+  }
+  return result.assets.size > 0 ? result.assets : undefined;
 }
 
 /**
@@ -56,7 +112,8 @@ export async function convert(options: ConvertOptions, deps: ConvertDeps = {}): 
       builtin.push(coverStage(title, date));
     }
 
-    let bodyHtml = parser.render(markdown);
+    const assets = await resolveImageAssets(parser, markdown, inputPath, options.embedImages ?? true);
+    let bodyHtml = parser.render(markdown, assets);
     for (const transform of [...builtin, ...transforms]) bodyHtml = transform(bodyHtml, ctx);
 
     const doc = assembleDocument(bodyHtml, ctx);

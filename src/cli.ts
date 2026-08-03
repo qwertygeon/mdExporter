@@ -15,6 +15,8 @@ interface CliOptions {
   header?: boolean;
   footer?: boolean;
   recursive?: boolean;
+  /** commander 의 `--no-embed-images` 대응 — 플래그 미지정 시 true. */
+  embedImages: boolean;
 }
 
 function resolveFormats(format: string): OutputFormat[] {
@@ -40,6 +42,7 @@ program
   .option('--header', 'PDF header with document title')
   .option('--footer', 'PDF footer with page numbers')
   .option('-r, --recursive', 'recurse into subdirectories of directory inputs (skips dotfiles/node_modules)')
+  .option('--no-embed-images', 'keep original image paths instead of inlining local images (smaller output; PDF loses them)')
   .action(async (inputs: string[], opts: CliOptions) => {
     const formats: OutputFormat[] = resolveFormats(opts.format);
     let tocDepth: number | undefined;
@@ -60,6 +63,7 @@ program
       header: opts.header,
       footer: opts.footer,
       recursive: opts.recursive,
+      embedImages: opts.embedImages,
     });
     for (const out of outputs) console.log(`✓ ${out}`);
   });
