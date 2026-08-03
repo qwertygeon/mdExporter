@@ -77,7 +77,7 @@ body { font-family: 'MyFont', -apple-system, sans-serif; }
 
 ### 폰트 자산 재생성
 
-`themes/fonts/PretendardVariable.subset.woff2`(2350 서브셋)·`themes/fonts/PretendardVariable.full.woff2`(11172 전체)와 두 테마의 base64 임베딩은 `scripts/build-fonts.py` 로 재현 가능하다. 이 스크립트는 Python `fonttools`(빌드타임 도구)를 사용하며, 프로젝트의 npm 런타임 의존성에는 포함되지 않는다.
+`themes/fonts/PretendardVariable.subset.woff2`(2350 서브셋)·`themes/fonts/PretendardVariable.full.woff2`(11172 전체)와 두 테마의 base64 임베딩은 `scripts/build-fonts.py` 로 재현 가능하다. 이 자산과 스크립트는 저장소에만 있다 — 설치본에는 테마 CSS 에 임베딩된 형태로만 들어가므로, 재생성하려면 저장소를 클론해야 한다. 이 스크립트는 Python `fonttools`(빌드타임 도구)를 사용하며, 프로젝트의 npm 런타임 의존성에는 포함되지 않는다.
 
 ```bash
 uv run --with 'fonttools[woff]' --with brotli python scripts/build-fonts.py
@@ -115,7 +115,12 @@ uv run --with 'fonttools[woff]' --with brotli python scripts/build-fonts.py
 4. `--theme` 로 지정해 변환한다.
 
 ```bash
+# 저장소를 클론해 쓰는 경우
 cp themes/default.css my-theme.css
+
+# 전역 설치본에서 복사하는 경우
+cp "$(npm root -g)/mdexporter/themes/default.css" my-theme.css
+
 # my-theme.css 편집 후
 mdexport 문서.md --theme my-theme.css
 ```
