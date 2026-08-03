@@ -42,3 +42,5 @@
 - 교체 가능한 테마 주입 옵션 (`--theme`).
 - CLI 옵션: 출력 포맷(`--format`), 제목(`--title`), 출력 디렉터리(`--out-dir`).
 - 원본 문구를 보존하는 내용 불변 변환.
+
+[0.3.0]: https://github.com/qwertygeon/mdExporter/releases/tag/v0.3.0
