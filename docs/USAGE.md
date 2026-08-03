@@ -28,7 +28,7 @@ mdExporter 로 Markdown 문서를 HTML·PDF 로 변환하는 방법을 설명한
 mdexport <input.md> [옵션]
 ```
 
-`<input.md>` 는 변환할 Markdown 파일 경로다. 소스에서 빌드해 쓰는 경우 `mdexport` 대신 `node dist/cli.js` 로 실행한다.
+`<input.md>` 는 변환할 Markdown 파일 경로다. 이 문서의 명령 예시는 npm 으로 설치해 `mdexport` 를 쓰는 경우를 기준으로 한다 — 저장소를 클론해 쓰는 경우 `mdexport` 대신 `node dist/cli.js` 로 실행한다.
 
 옵션 없이 실행하면 입력 파일과 같은 폴더에 HTML 과 PDF 를 모두 생성한다.
 
@@ -107,13 +107,20 @@ mdexport 문서.md -t my-theme.css
 | `themes/default-full.css` | 상용 범위를 넘는 현대 한글(11172자)까지 완전 커버 임베딩 | 기본 대비 약 +1.5MB |
 | `themes/default-cdn.css` | 폰트를 CDN 에서 원격 로드(임베딩 없음) — 온라인 환경·크기에 민감한 경우 | 폰트 자체 증가 없음(네트워크 필요) |
 
+`--theme` 는 경로를 그대로 읽으므로, 동봉 테마를 지정하려면 설치본 안의 실제 경로를 줘야 한다. 전역 설치한 경우:
+
 ```bash
+# 설치 경로를 변수로 잡아두면 편하다
+THEMES="$(npm root -g)/mdexporter/themes"
+
 # 상용 범위를 넘는 희귀 한글까지 완전히 커버해야 하는 경우
-mdexport 문서.md --theme themes/default-full.css
+mdexport 문서.md --theme "$THEMES/default-full.css"
 
 # 온라인 환경에서 산출물 크기를 최소화하려는 경우
-mdexport 문서.md --theme themes/default-cdn.css
+mdexport 문서.md --theme "$THEMES/default-cdn.css"
 ```
+
+저장소를 클론해 쓰는 경우에는 클론 루트 기준 상대경로(`themes/default-full.css`)를 그대로 쓸 수 있다.
 
 ### --title
 
@@ -196,7 +203,7 @@ mdexport 문서.md -f pdf --header --footer --title "월간 보고서"
 | 증상 | 원인 · 해결 |
 |---|---|
 | PDF 생성 시 브라우저 관련 오류 | Chromium 미설치 — `npx playwright install chromium` 로 1회 설치 |
-| 한글이 기본 고딕으로 나옴 | 기본 테마는 상용 한글(2350자) 범위를 임베딩한다 — 그 범위 밖의 희귀 한자·인명 등 문자만 시스템 폰트로 폴백된다(폰트 임베딩과 무관한 정상 동작). 완전 커버가 필요하면 `--theme themes/default-full.css` 사용. `--theme themes/default-cdn.css` 로 CDN 방식을 쓰는 경우엔 네트워크 차단 시 시스템 폰트로 폴백된다 |
+| 한글이 기본 고딕으로 나옴 | 기본 테마는 상용 한글(2350자) 범위를 임베딩한다 — 그 범위 밖의 희귀 한자·인명 등 문자만 시스템 폰트로 폴백된다(폰트 임베딩과 무관한 정상 동작). 완전 커버가 필요하면 완전 커버 테마를 지정한다([오프라인 폰트와 테마 변형](#오프라인-폰트와-테마-변형) 의 경로 지정 방법 참조). CDN 테마를 쓰는 경우엔 네트워크 차단 시 시스템 폰트로 폴백된다 |
 | 표·코드 박스 배경이 PDF 에서 안 보임 | 기본 설정은 배경 인쇄 켜짐 — 커스텀 테마에서 배경을 제거하지 않았는지 확인 |
 | 스타일이 안 먹음 | `--theme` 경로가 실행 위치 기준으로 유효한지 확인 |
 | 표·코드가 페이지 경계에서 잘림 | 요소가 한 페이지보다 크면 불가피 — 내용을 나누거나 테마 폰트 크기를 조정 |

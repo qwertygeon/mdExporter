@@ -40,15 +40,13 @@ Markdown 문서를 **문구 변경 없이** 시인성 좋은 HTML·PDF 로 변�
 npm install -g mdexporter
 ```
 
-소스에서 빌드해 쓰려면:
+소스에서 빌드해 쓰려면 클론 후 `npm install` 하면 된다(설치 과정에서 빌드까지 끝난다). 이 경우 명령은 `node dist/cli.js` 로 실행하며, `mdexport` 라는 이름으로 쓰려면 `npm link` 한다.
 
 ```bash
 git clone https://github.com/qwertygeon/mdExporter.git
 cd mdExporter
 npm install
 ```
-
-전역 명령 `mdexport` 로 쓰려면 `npm link` 를, 아니면 `node dist/cli.js` 를 사용한다.
 
 ## 빠른 시작
 
