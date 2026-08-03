@@ -685,3 +685,271 @@ describe('오프라인 폰트 임베딩 (v0.3.0 003)', () => {
     expect(resolved).toMatch(/src:\s*url\(data:font\/woff2;base64,/);
   });
 });
+
+describe('로컬 이미지 임베딩 (v0.3.1 001)', () => {
+  const imgFixture = join(here, 'fixtures', 'images', 'gradient.png');
+
+  /** console.warn 을 가로채 경고 발생을 단언할 수 있게 한다. */
+  function captureWarnings() {
+    const messages: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => {
+      messages.push(args.map(String).join(' '));
+    };
+    return { messages, restore: () => { console.warn = original; } };
+  }
+
+  /** 이미지가 포함된 markdown 문서를 임시 폴더에 만들고 경로를 돌려준다. */
+  function makeDocWithImage(
+    body: string,
+    layout: { imageAt?: string } = {},
+  ): { dir: string; doc: string } {
+    const dir = join(tmpdir(), `mdx-img-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    const rel = layout.imageAt ?? 'gradient.png';
+    const imgPath = join(dir, rel);
+    mkdirSync(dirname(imgPath), { recursive: true });
+    writeFileSync(imgPath, readFileSync(imgFixture));
+    const doc = join(dir, 'doc.md');
+    writeFileSync(doc, body, 'utf8');
+    return { dir, doc };
+  }
+
+  it('SC-1: 상대경로 이미지를 data URI 로 인라인한다', async () => {
+    const { dir, doc } = makeDocWithImage('# 제목\n\n![구성도](gradient.png)\n');
+    try {
+      const { renderer, docs } = captureRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(docs[0]).toMatch(/<img src="data:image\/png;base64,[A-Za-z0-9+/=]+"/);
+      expect(docs[0]).not.toContain('src="gradient.png"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-2: 하위 폴더·상위 참조 경로를 입력 파일 기준으로 해석한다', async () => {
+    const dir = join(tmpdir(), `mdx-img2-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(dir, 'sub', 'assets'), { recursive: true });
+    mkdirSync(join(dir, 'shared'), { recursive: true });
+    const bytes = readFileSync(imgFixture);
+    writeFileSync(join(dir, 'sub', 'assets', 'a.png'), bytes);
+    writeFileSync(join(dir, 'shared', 'b.png'), bytes);
+    const doc = join(dir, 'sub', 'doc.md');
+    writeFileSync(doc, '![a](assets/a.png)\n\n![b](../shared/b.png)\n', 'utf8');
+    try {
+      const { renderer, docs } = captureRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      const matches = docs[0].match(/data:image\/png;base64,/g) ?? [];
+      expect(matches.length).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-3: --out-dir 로 다른 폴더에 출력해도 이미지가 담긴다', async () => {
+    const { dir, doc } = makeDocWithImage('![구성도](gradient.png)\n');
+    const outDir = join(dir, 'out');
+    try {
+      const { renderer, docs } = captureRenderer();
+      await convert({ input: doc, formats: ['html'], outDir }, { renderer });
+      expect(docs[0]).toContain('data:image/png;base64,');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-4: embedImages: false 면 원본 경로가 그대로 남는다', async () => {
+    const { dir, doc } = makeDocWithImage('![구성도](gradient.png)\n');
+    try {
+      const { renderer, docs } = captureRenderer();
+      await convert({ input: doc, formats: ['html'], embedImages: false }, { renderer });
+      expect(docs[0]).toContain('src="gradient.png"');
+      expect(docs[0]).not.toContain('data:image/png;base64,');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-5: 원격 URL·data URI 는 임베딩 대상에서 제외한다', async () => {
+    const { dir, doc } = makeDocWithImage(
+      '![원격](https://example.com/x.png)\n\n![이미인라인](data:image/gif;base64,R0lGOD)\n',
+    );
+    try {
+      const { renderer, docs } = captureRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(docs[0]).toContain('src="https://example.com/x.png"');
+      expect(docs[0]).toContain('src="data:image/gif;base64,R0lGOD"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-6: 없는 이미지 경로는 원본 src 를 유지하고 변환은 성공한다', async () => {
+    const { dir, doc } = makeDocWithImage('![없음](nope.png)\n');
+    try {
+      const { renderer, docs } = captureRenderer();
+      const out = await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(out.length).toBe(1);
+      expect(docs[0]).toContain('src="nope.png"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-7: 임베딩 후에도 원본 텍스트·alt 가 보존된다 (P-001)', async () => {
+    const body = '# 보고서 제목\n\n본문 문장이다.\n\n![구성도 설명](gradient.png)\n\n마무리 문장.\n';
+    const { dir, doc } = makeDocWithImage(body);
+    try {
+      const { renderer, docs } = captureRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      for (const word of ['보고서', '제목', '본문', '문장이다', '구성도', '설명', '마무리']) {
+        expect(docs[0]).toContain(word);
+      }
+      expect(docs[0]).toContain('alt="구성도 설명"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-10: 이미지가 없는 문서는 자산 조회 없이 종전 경로로 렌더된다 (회귀 가드)', async () => {
+    const { createParser } = await import('../src/parser.js');
+    const base = createParser();
+    const seen: (unknown | undefined)[] = [];
+    const parser = {
+      render: (md: string, assets?: ReadonlyMap<string, string>) => {
+        seen.push(assets);
+        return base.render(md, assets);
+      },
+      scanImages: base.scanImages,
+    };
+    const { renderer, docs } = captureRenderer();
+    await convert({ input: fixture, formats: ['html'] }, { renderer, parser });
+    expect(seen).toEqual([undefined]);
+    expect(docs[0]).not.toContain('data:image');
+  });
+
+  it('SC-6b: 없는 이미지는 경고로 알린다 (조용한 소실 금지)', async () => {
+    const { dir, doc } = makeDocWithImage('![없음](nope.png)\n');
+    const warnings = captureWarnings();
+    try {
+      const { renderer } = captureRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+    } finally {
+      warnings.restore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+    expect(warnings.messages.join('\n')).toMatch(/이미지를 찾을 수 없습니다.*nope\.png/);
+  });
+
+  it('SC-9b: 원시 HTML <img> 는 경고로 알리고, 주석·원격 참조는 오탐하지 않는다', async () => {
+    const { dir, doc } = makeDocWithImage(
+      '<img src="gradient.png" width="120">\n\n<!-- <img src="commented.png"> -->\n\n<img src="https://h/x.png">\n',
+    );
+    const warnings = captureWarnings();
+    try {
+      const { renderer } = captureRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+    } finally {
+      warnings.restore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+    const joined = warnings.messages.join('\n');
+    expect(joined).toMatch(/원시 HTML <img> 1개/);
+  });
+
+  it('SC-6c: 읽기 실패 원인이 경고에 담긴다 (없음과 구분)', async () => {
+    const dir = join(tmpdir(), `mdx-img-dir-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(dir, 'shot.png'), { recursive: true }); // 이미지 경로에 디렉터리
+    const doc = join(dir, 'doc.md');
+    writeFileSync(doc, '![디렉터리](shot.png)\n', 'utf8');
+    const warnings = captureWarnings();
+    try {
+      const { renderer } = captureRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+    } finally {
+      warnings.restore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+    expect(warnings.messages.join('\n')).toMatch(/이미지를 읽을 수 없습니다\(EISDIR\)/);
+  });
+
+  it('URL 수식자가 붙은 로컬 참조도 임베딩한다 (?v=·#단편)', async () => {
+    const { dir, doc } = makeDocWithImage('![캐시버스터](gradient.png?v=2)\n\n![단편](gradient.png#top)\n');
+    try {
+      const { renderer, docs } = captureRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      const matches = docs[0].match(/data:image\/png;base64,/g) ?? [];
+      expect(matches.length).toBe(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-12: 세 테마의 이미지 규칙이 동일하고 최대 너비를 규칙 안에서 지정한다', async () => {
+    const themesDir = join(here, '..', 'themes');
+    const blocks = ['default.css', 'default-full.css', 'default-cdn.css'].map((name) => {
+      const css = readFileSync(join(themesDir, name), 'utf8');
+      const block = /(?:^|\n)img\s*\{([^}]*)\}/.exec(css);
+      expect(block, `${name} 에 img 규칙 없음`).not.toBeNull();
+      return block![1];
+    });
+    for (const body of blocks) {
+      expect(body).toMatch(/max-width:\s*100%/);
+      expect(body).toMatch(/height:\s*auto/);
+    }
+    expect(new Set(blocks.map((b) => b.replace(/\s+/g, ' ').trim())).size).toBe(1);
+  });
+});
+
+describe('이미지 자산 해석 단위 (v0.3.1 001)', () => {
+  it('isEmbeddableRef: 로컬 경로만 임베딩 대상으로 판정한다', async () => {
+    const { isEmbeddableRef } = await import('../src/images.js');
+    expect(isEmbeddableRef('a.png')).toBe(true);
+    expect(isEmbeddableRef('./sub/a.png')).toBe(true);
+    expect(isEmbeddableRef('../up/a.png')).toBe(true);
+    expect(isEmbeddableRef('/abs/a.png')).toBe(true);
+    expect(isEmbeddableRef('http://h/a.png')).toBe(false);
+    expect(isEmbeddableRef('https://h/a.png')).toBe(false);
+    expect(isEmbeddableRef('//h/a.png')).toBe(false);
+    expect(isEmbeddableRef('data:image/png;base64,AAA')).toBe(false);
+    expect(isEmbeddableRef('file:///tmp/a.png')).toBe(false);
+    expect(isEmbeddableRef('')).toBe(false);
+  });
+
+  it('SC-8: 확장자별 MIME 을 부여하고 미지 확장자는 대상에서 제외한다', async () => {
+    const { mimeForImage } = await import('../src/images.js');
+    expect(mimeForImage('a.png')).toBe('image/png');
+    expect(mimeForImage('a.JPG')).toBe('image/jpeg');
+    expect(mimeForImage('a.jpeg')).toBe('image/jpeg');
+    expect(mimeForImage('a.gif')).toBe('image/gif');
+    expect(mimeForImage('a.webp')).toBe('image/webp');
+    expect(mimeForImage('a.svg')).toBe('image/svg+xml');
+    expect(mimeForImage('a.avif')).toBe('image/avif');
+    expect(mimeForImage('a.txt')).toBeUndefined();
+    expect(mimeForImage('noext')).toBeUndefined();
+  });
+
+  it('loadImageAssets: 존재 파일은 data URI, 미존재는 missing 으로 분류한다', async () => {
+    const { loadImageAssets } = await import('../src/images.js');
+    const baseDir = join(here, 'fixtures', 'images');
+    const { assets, missing } = await loadImageAssets(['gradient.png', 'nope.png'], baseDir);
+    expect(assets.get('gradient.png')).toMatch(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/);
+    expect(assets.has('nope.png')).toBe(false);
+    expect(missing).toEqual([{ ref: 'nope.png', code: 'ENOENT' }]);
+  });
+
+  it('같은 파일을 다른 표기로 참조하면 읽기를 1회로 합친다', async () => {
+    const { loadImageAssets } = await import('../src/images.js');
+    const baseDir = join(here, 'fixtures', 'images');
+    const { assets } = await loadImageAssets(['gradient.png', './gradient.png'], baseDir);
+    expect(assets.size).toBe(2);
+    expect(assets.get('gradient.png')).toBe(assets.get('./gradient.png'));
+  });
+
+  it('SC-9: scanImages 가 markdown 이미지와 원시 HTML img 를 구분해 보고한다', async () => {
+    const { createParser } = await import('../src/parser.js');
+    const parser = createParser();
+    const scan = parser.scanImages!('![a](a.png)\n\n<img src="b.png" width="300">\n\n![c](https://h/c.png)\n');
+    expect(scan.refs).toEqual(['a.png', 'https://h/c.png']);
+    expect(scan.rawHtmlImages).toBe(1);
+  });
+});

@@ -142,6 +142,12 @@ blockquote {
 
 blockquote p { margin: 0.3em 0; }
 
+/* ---------- 이미지 ---------- */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
 /* ---------- 표지 (--cover) ---------- */
 .cover {
   min-height: 62vh;
