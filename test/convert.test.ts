@@ -937,12 +937,50 @@ describe('이미지 자산 해석 단위 (v0.3.1 001)', () => {
     expect(missing).toEqual([{ ref: 'nope.png', code: 'ENOENT' }]);
   });
 
-  it('같은 파일을 다른 표기로 참조하면 읽기를 1회로 합친다', async () => {
+  it('같은 파일을 다른 표기로 참조하면 같은 자산을 공유한다 (해석 경로 기준 dedup)', async () => {
     const { loadImageAssets } = await import('../src/images.js');
-    const baseDir = join(here, 'fixtures', 'images');
-    const { assets } = await loadImageAssets(['gradient.png', './gradient.png'], baseDir);
-    expect(assets.size).toBe(2);
-    expect(assets.get('gradient.png')).toBe(assets.get('./gradient.png'));
+    const dir = join(tmpdir(), `mdx-dedup-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(join(dir, 'sub'), { recursive: true });
+    const bytes = readFileSync(join(here, 'fixtures', 'images', 'gradient.png'));
+    writeFileSync(join(dir, 'same.png'), bytes);
+    writeFileSync(join(dir, 'sub', 'other.png'), Buffer.concat([bytes, Buffer.from([0])]));
+    try {
+      const { assets } = await loadImageAssets(
+        ['same.png', './same.png', 'sub/../same.png', 'sub/other.png'],
+        dir,
+      );
+      expect(assets.size).toBe(4);
+      const shared = ['same.png', './same.png', 'sub/../same.png'].map((r) => assets.get(r));
+      expect(new Set(shared).size).toBe(1); // 같은 파일 → 같은 data URI 문자열
+      expect(assets.get('sub/other.png')).not.toBe(shared[0]); // 다른 파일은 공유하지 않는다
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('0바이트 이미지는 임베딩하지 않고 경고한다', async () => {
+    const { loadImageAssets } = await import('../src/images.js');
+    const dir = join(tmpdir(), `mdx-empty-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'blank.png'), Buffer.alloc(0));
+    try {
+      const { assets, empty } = await loadImageAssets(['blank.png'], dir);
+      expect(assets.has('blank.png')).toBe(false);
+      expect(empty).toEqual(['blank.png']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('render 만 가진 파서도 그대로 동작한다 (하위호환 회귀 가드)', async () => {
+    const { renderer, docs } = captureRenderer();
+    const legacyParser = { render: (_md: string) => '<p>LEGACY BODY</p>' };
+    const out = await convert(
+      { input: join(here, 'fixtures', 'images', '..', '..', 'fixtures', 'sample.md'), formats: ['html'] },
+      { renderer, parser: legacyParser },
+    );
+    expect(out.length).toBe(1);
+    expect(docs[0]).toContain('LEGACY BODY');
   });
 
   it('SC-9: scanImages 가 markdown 이미지와 원시 HTML img 를 구분해 보고한다', async () => {

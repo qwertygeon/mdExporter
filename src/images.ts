@@ -130,7 +130,11 @@ export async function loadImageAssets(
 
     try {
       const bytes = await readFile(absPath);
-      if (bytes.length === 0) empty.push(ref);
+      if (bytes.length === 0) {
+        // 빈 파일을 빈 data URI 로 바꿔봐야 어차피 빈칸이다 — 다른 실패 분류와 같이 원본 src 를 남긴다.
+        empty.push(ref);
+        continue;
+      }
       const dataUri = `data:${picked.mime};base64,${bytes.toString('base64')}`;
       byAbsPath.set(absPath, dataUri);
       assets.set(ref, dataUri);
