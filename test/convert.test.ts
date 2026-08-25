@@ -1264,6 +1264,21 @@ describe('다이어그램 단위 (v0.3.1 002)', () => {
     expect(mermaidConfigFromTheme(css)).toEqual({ themeVariables: { fontSize: '13px' } });
   });
 
+  it('SC-15: 동봉 테마 3벌이 같은 인쇄 크기 정책을 선언한다', () => {
+    for (const name of ['default.css', 'default-cdn.css', 'default-full.css']) {
+      const css = readFileSync(join(here, '..', 'themes', name), 'utf8');
+      // 정책 값은 테마 변수로 노출해 문서마다 조정할 수 있어야 한다.
+      expect(css).toMatch(/--mdx-diagram-print-max-height:\s*157mm;/);
+      expect(css).toMatch(/--mdx-diagram-print-min-scale:\s*0\.8;/);
+      // 상한과 하한을 max() 로 결합 — 하한 아래로는 줄이지 않고 페이지에 나뉘게 둔다.
+      expect(css).toContain('var(--mdx-diagram-print-max-height)');
+      expect(css).toContain('calc(var(--mdx-diagram-h, 0px) * var(--mdx-diagram-print-min-scale))');
+      // 다이어그램 바로 앞 블록을 함께 넘기는 규칙(:has() 미지원 대비 별도 블록).
+      expect(css).toContain('p:has(+ figure.mermaid)');
+      expect(css).toContain('h3:has(+ figure.mermaid)');
+    }
+  });
+
   it('SC-11: --mermaid-config-* 는 설정 트리의 중첩 키로 옮긴다', async () => {
     const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
     const config = mermaidConfigFromTheme(

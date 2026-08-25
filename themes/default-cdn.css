@@ -18,6 +18,13 @@
   --mermaid-fontSize: 13px;
   --mermaid-config-flowchart-nodeSpacing: 30;
   --mermaid-config-flowchart-rankSpacing: 35;
+
+  /* 인쇄 시 다이어그램 크기 정책. SVG 는 지면 중간에서 시작하지 못해, 남은 공간보다 크면
+     통째로 다음 장으로 밀리며 그 자리가 빈다 — 상한을 걸어 그 낭비를 줄인다.
+     하한(고유 크기 대비 최소 배율)은 지면의 몇 배나 되는 다이어그램이 판독 불가까지
+     줄어드는 것을 막는다. 그런 다이어그램은 줄이지 않고 페이지에 나뉜다. */
+  --mdx-diagram-print-max-height: 157mm; /* 지면 본문 높이의 약 60% (A4 기본 여백 기준) */
+  --mdx-diagram-print-min-scale: 0.8;
 }
 
 * { box-sizing: border-box; }
@@ -222,4 +229,31 @@ figure.mermaid svg {
   body { font-size: 10.5pt; max-width: none; padding: 0; }
   a { color: var(--accent-dark); }
   pre, code { font-size: 0.85em; }
+
+  figure.mermaid svg {
+    max-height: max(
+      var(--mdx-diagram-print-max-height),
+      calc(var(--mdx-diagram-h, 0px) * var(--mdx-diagram-print-min-scale))
+    );
+    width: auto;
+    height: auto;
+  }
+}
+
+/* 다이어그램 바로 앞 블록을 다이어그램과 함께 넘긴다. 헤딩의 break-after 는 바로 다음
+   한 블록에만 걸리므로, 헤딩과 다이어그램 사이에 설명 문단이 끼면 사슬이 끊겨 헤딩만
+   앞 장에 남는다. :has() 미지원 브라우저에서 규칙 전체가 무효화되지 않도록 따로 둔다. */
+@media print {
+  p:has(+ figure.mermaid),
+  h1:has(+ figure.mermaid),
+  h2:has(+ figure.mermaid),
+  h3:has(+ figure.mermaid),
+  h4:has(+ figure.mermaid),
+  h5:has(+ figure.mermaid),
+  h6:has(+ figure.mermaid),
+  ul:has(+ figure.mermaid),
+  ol:has(+ figure.mermaid),
+  blockquote:has(+ figure.mermaid) {
+    break-after: avoid;
+  }
 }
