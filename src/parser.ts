@@ -12,6 +12,23 @@ interface ScanToken {
   attrGet(name: string): string | null;
 }
 
+/**
+ * 원시 HTML 조각에서 mermaid 컨테이너(`class` 에 `mermaid` 를 단 요소) 수를 센다.
+ * 주석 안의 태그는 렌더되지 않으므로 먼저 걷어낸다. 여기서 하는 일은 탐지뿐이다 —
+ * 원시 HTML 은 fence 렌더 규칙이 닿지 않아 다이어그램으로 그려지지 않으며, 경고 없이
+ * 원문 그대로 남으면 사용자가 이유를 알 수 없다.
+ */
+function countRawMermaidContainers(html: string): number {
+  const withoutComments = html.replace(/<!--[\s\S]*?-->/g, '');
+  let count = 0;
+  for (const tag of withoutComments.match(/<[a-zA-Z][^>]*>/g) ?? []) {
+    const cls = /\sclass\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(tag);
+    const value = cls?.[2] ?? cls?.[3] ?? cls?.[4] ?? '';
+    if (value.split(/\s+/).includes('mermaid')) count += 1;
+  }
+  return count;
+}
+
 /** 코드펜스 info 문자열에서 언어 태그만 뽑는다 (```mermaid, ```mermaid extra 모두 대응). */
 function fenceLang(info: string): string {
   return info.trim().split(/\s+/, 1)[0].toLowerCase();
@@ -85,9 +102,12 @@ export function createParser(): Parser {
     // 조사 순서와 같은 등장 순서로 소비한다(둘 다 같은 토큰 스트림을 앞에서부터 훑는다).
     const at = scope.diagramIndex ?? 0;
     scope.diagramIndex = at + 1;
-    const svg = scope.diagrams[at];
-    if (!svg) return defaultFence(tokens, idx, options, env, self);
-    return `<figure class="mermaid">${svg}</figure>\n`;
+    const diagram = scope.diagrams[at];
+    if (!diagram) return defaultFence(tokens, idx, options, env, self);
+    // 고유 치수를 CSS 변수로 실어 보낸다 — 테마가 "얼마까지 줄일지" 같은 크기 정책을
+    // 직접 쓸 수 있게 하기 위함이다(변환기는 사실만 넘기고 정책은 테마가 가진다).
+    const vars = `--mdx-diagram-w:${diagram.width}px;--mdx-diagram-h:${diagram.height}px`;
+    return `<figure class="mermaid" style="${vars}">${diagram.svg}</figure>\n`;
   };
 
   return {
@@ -99,14 +119,17 @@ export function createParser(): Parser {
       return scan;
     },
     scanDiagrams: (markdown: string): DiagramScan => {
-      const sources: string[] = [];
+      const scan: DiagramScan = { sources: [], rawHtmlDiagrams: 0 };
       // 코드펜스는 블록 토큰이라 평탄한 스트림에만 나타난다(인라인 children 미포함).
+      // 원시 HTML 은 html_block/html_inline 으로 통과하므로 같은 순회에서 세어 경고한다.
       for (const token of md.parse(markdown, {}) as unknown as ScanToken[]) {
         if (token.type === 'fence' && fenceLang(token.info) === MERMAID_FENCE_INFO) {
-          sources.push(token.content);
+          scan.sources.push(token.content);
+        } else if (token.type === 'html_block' || token.type === 'html_inline') {
+          scan.rawHtmlDiagrams += countRawMermaidContainers(token.content);
         }
       }
-      return { sources };
+      return scan;
     },
   };
 }

@@ -69,17 +69,28 @@ export interface ImageScan {
   rawHtmlImages: number;
 }
 
+/** 렌더된 다이어그램 하나. 고유 치수는 테마가 크기 정책을 쓸 수 있도록 함께 전달한다. */
+export interface RenderedDiagram {
+  svg: string;
+  /** mermaid 가 계산한 고유 폭(px) — viewBox 기준 */
+  width: number;
+  /** mermaid 가 계산한 고유 높이(px) — viewBox 기준 */
+  height: number;
+}
+
 /**
- * 등장 순서대로의 다이어그램 SVG. 렌더하지 못한 자리는 `undefined` 이며 원본 코드블록이 남는다.
+ * 등장 순서대로의 다이어그램. 렌더하지 못한 자리는 `undefined` 이며 원본 코드블록이 남는다.
  * 이미지 자산과 달리 소스가 아니라 **등장 순서**로 키잉한다 — 같은 소스가 두 번 나와도 각각
  * 고유한 SVG 를 받아 문서 안에서 element id 가 겹치지 않는다.
  */
-export type DiagramAssets = readonly (string | undefined)[];
+export type DiagramAssets = readonly (RenderedDiagram | undefined)[];
 
 /** 본문 mermaid 펜스 조사 결과 */
 export interface DiagramScan {
   /** 등장 순서의 mermaid 소스 */
   sources: string[];
+  /** 원시 HTML 로 적은 mermaid 컨테이너 수. 펜스가 아니라 렌더 대상 밖이다 */
+  rawHtmlDiagrams: number;
 }
 
 /** 다이어그램 렌더 요청 */
@@ -99,10 +110,10 @@ export interface DiagramRenderRequest {
 /** 다이어그램 렌더 결과. 개별 실패는 흡수하지 않고 분류해 돌려준다. */
 export interface DiagramRenderResult {
   /** 요청 순서와 같은 길이. 실패한 자리는 undefined */
-  svgs: DiagramAssets;
+  diagrams: DiagramAssets;
   /** 개별 다이어그램 실패 (요청 인덱스 + 사유) */
   failures: Array<{ index: number; message: string }>;
-  /** 전량을 렌더하지 못한 사유 (브라우저 기동 불가 등). 있으면 svgs 는 모두 undefined */
+  /** 전량을 렌더하지 못한 사유 (브라우저 기동 불가 등). 있으면 diagrams 는 모두 undefined */
   unavailable?: string;
 }
 

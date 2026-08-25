@@ -14,6 +14,16 @@
   --line: #e2e8f0;
   --bg-soft: #f8fafc;
   --bg-code: #f6f8fa;
+
+  /* 다이어그램(```mermaid) — 값은 mermaid 로 전달된다.
+     `--mermaid-<키>` = mermaid 테마 변수, `--mermaid-config-<경로>` = mermaid 설정 트리.
+     기본 글자 16px 은 인쇄 본문(10.5pt)보다 커서 도형이 과하게 부푼다 — 본문에 맞춰 줄이고
+     노드 간격도 함께 좁혀 10노드 규모 흐름도가 한 지면에 제목과 같이 들어가게 한다.
+     색은 선언하지 않아 mermaid 내장 팔레트가 그대로 쓰인다(색을 바꾸려면 색 변수와 함께
+     `--mermaid-config-theme: base` 를 선언한다). */
+  --mermaid-fontSize: 13px;
+  --mermaid-config-flowchart-nodeSpacing: 30;
+  --mermaid-config-flowchart-rankSpacing: 35;
 }
 
 * { box-sizing: border-box; }
@@ -163,7 +173,9 @@ figure.mermaid {
 }
 
 figure.mermaid svg {
-  max-width: 100%;
+  /* 고유 폭까지만 — 그보다 넓은 지면에서 억지로 늘리지 않는다. 고유 치수는 변환기가
+     figure 에 --mdx-diagram-w/h 로 실어 준다(없으면 폭에 맞춘다). */
+  max-width: min(100%, var(--mdx-diagram-w, 100%));
   height: auto;
 }
 

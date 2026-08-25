@@ -103,7 +103,12 @@ async function resolveDiagramAssets(
   if (!enabled || !parser.scanDiagrams || !renderer.renderDiagrams) return undefined;
   const warn = (message: string) => console.warn(`경고: ${inputPath} — ${message}`);
 
-  const { sources } = parser.scanDiagrams(markdown);
+  const { sources, rawHtmlDiagrams } = parser.scanDiagrams(markdown);
+  if (rawHtmlDiagrams > 0) {
+    warn(
+      `원시 HTML mermaid 컨테이너 ${rawHtmlDiagrams}개는 렌더 대상이 아닙니다(markdown 코드펜스 \`\`\`mermaid 로 쓰면 그려집니다).`,
+    );
+  }
   if (sources.length === 0) return undefined;
 
   const bundlePath = await resolveMermaidBundle();
@@ -129,7 +134,7 @@ async function resolveDiagramAssets(
   for (const { index, message } of result.failures) {
     warn(`${index + 1}번째 다이어그램을 렌더하지 못해 코드블록으로 남깁니다: ${oneLine(message)}`);
   }
-  return result.svgs.some((svg) => svg !== undefined) ? result.svgs : undefined;
+  return result.diagrams.some((diagram) => diagram !== undefined) ? result.diagrams : undefined;
 }
 
 /**

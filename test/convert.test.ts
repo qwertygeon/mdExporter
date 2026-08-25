@@ -1018,16 +1018,22 @@ describe('mermaid 다이어그램 (v0.3.1 002)', () => {
       renderDiagrams: async (request) => {
         requests.push(request);
         if (plan.unavailable) {
-          return { svgs: request.sources.map(() => undefined), failures: [], unavailable: plan.unavailable };
+          return { diagrams: request.sources.map(() => undefined), failures: [], unavailable: plan.unavailable };
         }
         const failed = new Set(plan.fail ?? []);
         const failures: Array<{ index: number; message: string }> = [];
-        const svgs = request.sources.map((_source, i) => {
-          if (!failed.has(i)) return `<svg id="mdx-diagram-${i}" data-n="${i}"></svg>`;
+        const diagrams = request.sources.map((_source, i) => {
+          if (!failed.has(i)) {
+            return {
+              svg: `<svg id="mdx-diagram-${i}" data-n="${i}"></svg>`,
+              width: 100 + i,
+              height: 200 + i,
+            };
+          }
           failures.push({ index: i, message: `Parse error on line 3:\n  ...\n  ^ (fake ${i})` });
           return undefined;
         });
-        return { svgs, failures };
+        return { diagrams, failures };
       },
     };
     return { renderer, docs, requests };
@@ -1050,7 +1056,7 @@ describe('mermaid 다이어그램 (v0.3.1 002)', () => {
     try {
       const { renderer, docs } = diagramRenderer();
       await convert({ input: doc, formats: ['html'] }, { renderer });
-      expect(docs[0]).toContain('<figure class="mermaid"><svg');
+      expect(docs[0]).toMatch(/<figure class="mermaid" style="[^"]*"><svg/);
       expect(docs[0]).not.toContain('class="language-mermaid"');
       expect(docs[0]).not.toContain('flowchart TD');
     } finally {
@@ -1064,7 +1070,7 @@ describe('mermaid 다이어그램 (v0.3.1 002)', () => {
       const { renderer, docs, requests } = diagramRenderer();
       await convert({ input: doc, formats: ['html'] }, { renderer });
       expect(requests[0].sources[0]).toContain('sequenceDiagram');
-      expect(docs[0]).toContain('<figure class="mermaid"><svg');
+      expect(docs[0]).toMatch(/<figure class="mermaid" style="[^"]*"><svg/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -1171,6 +1177,43 @@ describe('mermaid 다이어그램 (v0.3.1 002)', () => {
     }
   });
 
+  it('SC-13: figure 에 다이어그램 고유 치수를 CSS 변수로 실어 보낸다', async () => {
+    const { dir, doc } = makeDoc(FLOWCHART);
+    try {
+      const { renderer, docs } = diagramRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      // fake 렌더러가 돌려준 100x200 이 그대로 실린다 — 테마가 크기 정책을 쓸 수 있는 입력.
+      expect(docs[0]).toContain('--mdx-diagram-w:100px;--mdx-diagram-h:200px');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-14: 원시 HTML mermaid 컨테이너는 경고하고 렌더하지 않는다', async () => {
+    const { dir, doc } = makeDoc('<div class="mermaid">\nflowchart LR\n  X --> Y\n</div>\n');
+    const warnings = captureWarnings();
+    try {
+      const { renderer, docs, requests } = diagramRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(requests.length).toBe(0); // 렌더 대상이 아니므로 브라우저를 부르지 않는다
+      expect(docs[0]).not.toContain('<figure class="mermaid"');
+      expect(warnings.messages.join('\n')).toMatch(/원시 HTML mermaid 컨테이너 1개/);
+    } finally {
+      warnings.restore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-14: HTML 주석 안의 mermaid 컨테이너는 세지 않는다 (오탐 방지)', async () => {
+    const { createParser } = await import('../src/parser.js');
+    const parser = createParser();
+    const scan = parser.scanDiagrams!(
+      '<!-- <div class="mermaid">flowchart LR</div> -->\n\n<div class="mermaid diagram">flowchart TD</div>\n\n<div class="not-mermaid-thing">x</div>\n',
+    );
+    expect(scan.rawHtmlDiagrams).toBe(1);
+    expect(scan.sources).toEqual([]);
+  });
+
   it('렌더 페이지에 최종 문서와 같은 테마 CSS 를 전달한다 (폰트 실측 일치)', async () => {
     const { dir, doc } = makeDoc(FLOWCHART);
     try {
@@ -1186,14 +1229,13 @@ describe('mermaid 다이어그램 (v0.3.1 002)', () => {
 });
 
 describe('다이어그램 단위 (v0.3.1 002)', () => {
-  it('SC-8: 테마의 --mermaid-* 변수를 mermaid 설정으로 옮긴다', async () => {
+  it('SC-8: 테마의 --mermaid-* 변수를 mermaid 테마 변수로 옮긴다', async () => {
     const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
     expect(mermaidConfigFromTheme(':root { --ink: #111; }')).toEqual({});
     expect(mermaidConfigFromTheme('body { color: red; }')).toEqual({});
     expect(
       mermaidConfigFromTheme(':root {\n  --ink: #111;\n  --mermaid-primaryColor: #eff6ff;\n  --mermaid-lineColor: #64748b;\n}'),
     ).toEqual({
-      theme: 'base',
       themeVariables: { primaryColor: '#eff6ff', lineColor: '#64748b' },
     });
   });
@@ -1204,7 +1246,6 @@ describe('다이어그램 단위 (v0.3.1 002)', () => {
       ":root { --mermaid-fontFamily: 'Pretendard Variable', -apple-system, sans-serif; }",
     );
     expect(config).toEqual({
-      theme: 'base',
       themeVariables: { fontFamily: "'Pretendard Variable', -apple-system, sans-serif" },
     });
   });
@@ -1213,9 +1254,65 @@ describe('다이어그램 단위 (v0.3.1 002)', () => {
     const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
     const css = '@font-face { src: url(data:font/woff2;base64,AAA{BBB); }\n:root { --mermaid-lineColor: #000; }';
     expect(mermaidConfigFromTheme(css)).toEqual({
-      theme: 'base',
       themeVariables: { lineColor: '#000' },
     });
+  });
+
+  it('주석 안의 예시 선언을 실제 선언으로 읽지 않는다', async () => {
+    const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
+    const css = ':root {\n  /* --mermaid-config-theme: base; 이렇게 선언한다 */\n  --mermaid-fontSize: 13px;\n}';
+    expect(mermaidConfigFromTheme(css)).toEqual({ themeVariables: { fontSize: '13px' } });
+  });
+
+  it('SC-11: --mermaid-config-* 는 설정 트리의 중첩 키로 옮긴다', async () => {
+    const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
+    const config = mermaidConfigFromTheme(
+      ':root {\n  --mermaid-fontSize: 13px;\n  --mermaid-config-flowchart-nodeSpacing: 30;\n  --mermaid-config-flowchart-rankSpacing: 35;\n  --mermaid-config-sequence-actorMargin: 40;\n}',
+    );
+    expect(config).toEqual({
+      themeVariables: { fontSize: '13px' },
+      flowchart: { nodeSpacing: 30, rankSpacing: 35 },
+      sequence: { actorMargin: 40 },
+    });
+  });
+
+  it('SC-11: 설정 값의 숫자·불리언 타입을 되살린다 (문자열 "false" 는 참이 된다)', async () => {
+    const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
+    const config = mermaidConfigFromTheme(
+      ':root {\n  --mermaid-config-flowchart-useMaxWidth: false;\n  --mermaid-config-flowchart-nodeSpacing: 30;\n  --mermaid-config-theme: base;\n  --mermaid-config-flowchart-curve: -1.5;\n}',
+    );
+    expect(config).toEqual({
+      theme: 'base',
+      flowchart: { useMaxWidth: false, nodeSpacing: 30, curve: -1.5 },
+    });
+  });
+
+  it('SC-12: 테마 변수가 있어도 base 테마를 강제하지 않는다 (mermaid 내장 팔레트 보존)', async () => {
+    const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
+    // fontSize 는 내장 테마에서도 적용되므로, 크기만 바꾸려는 테마가 색까지 잃지 않아야 한다.
+    expect(mermaidConfigFromTheme(':root { --mermaid-fontSize: 13px; }')).toEqual({
+      themeVariables: { fontSize: '13px' },
+    });
+    // 색을 바꾸려는 테마는 base 를 명시한다.
+    expect(
+      mermaidConfigFromTheme(':root { --mermaid-config-theme: base; --mermaid-primaryColor: #eff6ff; }'),
+    ).toEqual({ theme: 'base', themeVariables: { primaryColor: '#eff6ff' } });
+  });
+
+  it('동봉 테마 3벌이 같은 다이어그램 기본 크기를 선언한다', async () => {
+    const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
+    const themes = ['default.css', 'default-cdn.css', 'default-full.css'];
+    const configs = themes.map((name) =>
+      mermaidConfigFromTheme(readFileSync(join(here, '..', 'themes', name), 'utf8')),
+    );
+    for (const config of configs) {
+      expect(config).toMatchObject({
+        themeVariables: { fontSize: '13px' },
+        flowchart: { nodeSpacing: 30, rankSpacing: 35 },
+      });
+      // 색을 선언하지 않아 mermaid 내장 팔레트가 유지된다.
+      expect(config.theme).toBeUndefined();
+    }
   });
 
   it('scanDiagrams: mermaid 펜스만 등장 순서로 모은다', async () => {
@@ -1237,7 +1334,11 @@ describe('다이어그램 단위 (v0.3.1 002)', () => {
     const html = parser.render(
       md,
       undefined,
-      scan.sources.map((source, i) => `<svg data-n="${i}">${source.trim()}</svg>`),
+      scan.sources.map((source, i) => ({
+        svg: `<svg data-n="${i}">${source.trim()}</svg>`,
+        width: 100,
+        height: 200,
+      })),
     );
     // 조사 순서와 치환 순서가 어긋나면 자리가 뒤바뀐다.
     expect(html).toMatch(
