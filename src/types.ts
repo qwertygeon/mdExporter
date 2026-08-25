@@ -38,6 +38,11 @@ export interface ConvertOptions {
    * false 면 원본 src 를 유지한다 — 산출물이 작아지는 대신 PDF·다른 폴더 출력에서 이미지가 보이지 않는다.
    */
   embedImages?: boolean;
+  /**
+   * ```mermaid 펜스를 다이어그램(SVG)으로 렌더해 본문에 인라인. 기본 true.
+   * false 면 종전처럼 코드블록으로 남으며 브라우저를 띄우지 않는다.
+   */
+  mermaid?: boolean;
 }
 
 export type OutputFormat = 'html' | 'pdf';
@@ -64,18 +69,65 @@ export interface ImageScan {
   rawHtmlImages: number;
 }
 
-/** markdown → 본문 HTML */
-export interface Parser {
-  /** assets 가 주어지면 해당 이미지 참조를 data URI 로 치환해 렌더한다. */
-  render(markdown: string, assets?: ImageAssets): string;
-  /** 본문 이미지 참조 조사. 미구현 시 convert 는 이미지 임베딩을 건너뛴다. */
-  scanImages?(markdown: string): ImageScan;
+/**
+ * 등장 순서대로의 다이어그램 SVG. 렌더하지 못한 자리는 `undefined` 이며 원본 코드블록이 남는다.
+ * 이미지 자산과 달리 소스가 아니라 **등장 순서**로 키잉한다 — 같은 소스가 두 번 나와도 각각
+ * 고유한 SVG 를 받아 문서 안에서 element id 가 겹치지 않는다.
+ */
+export type DiagramAssets = readonly (string | undefined)[];
+
+/** 본문 mermaid 펜스 조사 결과 */
+export interface DiagramScan {
+  /** 등장 순서의 mermaid 소스 */
+  sources: string[];
 }
 
-/** 조립된 HTML 문서 → 산출물 */
+/** 다이어그램 렌더 요청 */
+export interface DiagramRenderRequest {
+  sources: readonly string[];
+  /** 브라우저에 주입할 mermaid 번들 파일 경로 */
+  bundlePath: string;
+  /**
+   * 렌더 페이지에 적용할 테마 CSS. mermaid 는 라벨의 실측 폭으로 도형 크기를 정하므로
+   * 최종 문서와 같은 폰트를 써야 한글 라벨이 상자를 넘치지 않는다.
+   */
+  themeCss: string;
+  /** mermaid.initialize 설정 (테마 CSS 의 --mermaid-* 변수에서 도출) */
+  config: Record<string, unknown>;
+}
+
+/** 다이어그램 렌더 결과. 개별 실패는 흡수하지 않고 분류해 돌려준다. */
+export interface DiagramRenderResult {
+  /** 요청 순서와 같은 길이. 실패한 자리는 undefined */
+  svgs: DiagramAssets;
+  /** 개별 다이어그램 실패 (요청 인덱스 + 사유) */
+  failures: Array<{ index: number; message: string }>;
+  /** 전량을 렌더하지 못한 사유 (브라우저 기동 불가 등). 있으면 svgs 는 모두 undefined */
+  unavailable?: string;
+}
+
+/** markdown → 본문 HTML */
+export interface Parser {
+  /**
+   * assets 가 주어지면 해당 이미지 참조를 data URI 로 치환하고,
+   * diagrams 가 주어지면 mermaid 펜스를 등장 순서대로 SVG 로 치환해 렌더한다.
+   */
+  render(markdown: string, assets?: ImageAssets, diagrams?: DiagramAssets): string;
+  /** 본문 이미지 참조 조사. 미구현 시 convert 는 이미지 임베딩을 건너뛴다. */
+  scanImages?(markdown: string): ImageScan;
+  /** 본문 mermaid 펜스 조사. 미구현 시 convert 는 다이어그램 렌더를 건너뛴다. */
+  scanDiagrams?(markdown: string): DiagramScan;
+}
+
+/**
+ * 조립된 HTML 문서 → 산출물. 브라우저를 소유하는 주체이기도 하여,
+ * 브라우저가 필요한 다이어그램 렌더도 같은 인스턴스를 재사용해 수행한다.
+ */
 export interface Renderer {
   html(doc: string, outPath: string): Promise<void>;
   pdf(doc: string, outPath: string, pdf: PdfOptions): Promise<void>;
+  /** mermaid 소스 → SVG. 미구현 시 convert 는 다이어그램 렌더를 건너뛴다. */
+  renderDiagrams?(request: DiagramRenderRequest): Promise<DiagramRenderResult>;
   /** 재사용 리소스(브라우저 등) 정리 — 렌더러 소유자가 작업 종료 시 1회 호출. */
   dispose?(): Promise<void>;
 }

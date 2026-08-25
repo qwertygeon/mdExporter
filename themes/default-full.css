@@ -154,6 +154,19 @@ img {
   height: auto;
 }
 
+/* ---------- 다이어그램 (```mermaid) ---------- */
+figure.mermaid {
+  margin: 1.4em 0;
+  text-align: center;
+  /* 블록 컨테이너라 인쇄 시 페이지 경계에서 쪼개지지 않게 선언이 유효하다. */
+  break-inside: avoid;
+}
+
+figure.mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
 /* ---------- 표지 (--cover) ---------- */
 .cover {
   min-height: 62vh;

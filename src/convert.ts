@@ -4,9 +4,11 @@ import type {
   ConvertContext,
   ConvertDeps,
   ConvertOptions,
+  DiagramAssets,
   ImageAssets,
   Parser,
   PdfOptions,
+  Renderer,
   TransformStage,
 } from './types.js';
 import { createParser } from './parser.js';
@@ -15,6 +17,7 @@ import { resolveTheme } from './theme.js';
 import { assembleDocument } from './template.js';
 import { tocStage, coverStage, pdfHeaderTemplate, pdfFooterTemplate } from './layout.js';
 import { loadImageAssets } from './images.js';
+import { mermaidConfigFromTheme, resolveMermaidBundle } from './diagrams.js';
 
 const HF_MARGIN = { top: '22mm', bottom: '22mm', left: '15mm', right: '15mm' };
 
@@ -77,6 +80,58 @@ async function resolveImageAssets(
   return result.assets.size > 0 ? result.assets : undefined;
 }
 
+/** 여러 줄로 오는 파서 오류 메시지를 경고 한 줄로 접는다. */
+function oneLine(message: string): string {
+  return message.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * 본문의 mermaid 펜스를 SVG 로 렌더한 자산 배열을 만든다(등장 순서).
+ *
+ * 렌더하지 못한 자리는 undefined 로 남아 원본 코드블록이 그대로 출력된다 — 개별 다이어그램은
+ * 문서 산출의 필수 입력이 아니므로 문서 전체 변환을 실패시키지 않는다(침묵은 하지 않는다).
+ * 브라우저가 필요하므로 mermaid 펜스가 하나도 없으면 렌더러를 건드리지 않는다.
+ */
+async function resolveDiagramAssets(
+  parser: Parser,
+  renderer: Renderer,
+  markdown: string,
+  inputPath: string,
+  themeCss: string,
+  enabled: boolean,
+): Promise<DiagramAssets | undefined> {
+  if (!enabled || !parser.scanDiagrams || !renderer.renderDiagrams) return undefined;
+  const warn = (message: string) => console.warn(`경고: ${inputPath} — ${message}`);
+
+  const { sources } = parser.scanDiagrams(markdown);
+  if (sources.length === 0) return undefined;
+
+  const bundlePath = await resolveMermaidBundle();
+  if (!bundlePath) {
+    warn(
+      `mermaid 번들이 없어 다이어그램 ${sources.length}개를 코드블록으로 남깁니다(vendor/mermaid/mermaid.min.js 부재 — 개발 저장소라면 node scripts/build-mermaid.mjs 로 생성합니다).`,
+    );
+    return undefined;
+  }
+
+  const result = await renderer.renderDiagrams({
+    sources,
+    bundlePath,
+    themeCss,
+    config: mermaidConfigFromTheme(themeCss),
+  });
+  if (result.unavailable) {
+    warn(
+      `브라우저를 띄울 수 없어 다이어그램 ${sources.length}개를 코드블록으로 남깁니다(${oneLine(result.unavailable)}). PDF 와 마찬가지로 npx playwright install chromium 이 필요합니다.`,
+    );
+    return undefined;
+  }
+  for (const { index, message } of result.failures) {
+    warn(`${index + 1}번째 다이어그램을 렌더하지 못해 코드블록으로 남깁니다: ${oneLine(message)}`);
+  }
+  return result.svgs.some((svg) => svg !== undefined) ? result.svgs : undefined;
+}
+
 /**
  * markdown 파일을 HTML·PDF 로 변환한다.
  * 파이프라인: parse → transform → template → render. 각 단계는 deps 로 교체 가능하며,
@@ -113,7 +168,15 @@ export async function convert(options: ConvertOptions, deps: ConvertDeps = {}): 
     }
 
     const assets = await resolveImageAssets(parser, markdown, inputPath, options.embedImages ?? true);
-    let bodyHtml = parser.render(markdown, assets);
+    const diagrams = await resolveDiagramAssets(
+      parser,
+      renderer,
+      markdown,
+      inputPath,
+      theme,
+      options.mermaid ?? true,
+    );
+    let bodyHtml = parser.render(markdown, assets, diagrams);
     for (const transform of [...builtin, ...transforms]) bodyHtml = transform(bodyHtml, ctx);
 
     const doc = assembleDocument(bodyHtml, ctx);

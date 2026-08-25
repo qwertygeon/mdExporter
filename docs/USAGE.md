@@ -14,6 +14,7 @@ mdExporter 로 Markdown 문서를 HTML·PDF 로 변환하는 방법을 설명한
   - [--title](#--title)
   - [--out-dir](#--out-dir)
 - [이미지](#이미지)
+- [mermaid 다이어그램](#mermaid-다이어그램)
 - [문서 레이아웃 (opt-in)](#문서-레이아웃-opt-in)
   - [목차 --toc](#목차---toc)
   - [표지 --cover](#표지---cover)
@@ -177,6 +178,41 @@ mdexport report.md -o build/
 mdexport report.md --no-embed-images
 ```
 
+## mermaid 다이어그램
+
+` ```mermaid ` 로 감싼 블록은 **변환 시점에 그림(SVG)으로 그려져** 본문에 담긴다(기본 동작). 산출물에는 그림만 들어가고 스크립트가 붙지 않으므로, HTML 을 열든 PDF 로 뽑든 같은 그림이 나오고 볼 때 네트워크도 필요 없다.
+
+````markdown
+```mermaid
+flowchart TD
+  A[markdown 입력] --> B{mermaid 펜스?}
+  B -->|예| C[SVG 렌더]
+  B -->|아니오| D[코드블록 유지]
+```
+````
+
+지원 범위는 mermaid 자체가 그릴 수 있는 다이어그램 전부다 — `flowchart`·`sequenceDiagram`·`classDiagram`·`stateDiagram`·`erDiagram`·`gantt` 등.
+
+**브라우저가 필요하다.** 그림은 Chromium 으로 그리므로 PDF 와 같은 준비물이 든다(`npx playwright install chromium`). 브라우저가 없어도 변환은 실패하지 않는다 — 경고를 출력하고 다이어그램만 코드블록으로 남긴다.
+
+| 상황 | 동작 |
+|---|---|
+| mermaid 문법 오류 | 그 다이어그램만 코드블록으로 남기고, 몇 번째 다이어그램인지와 오류 위치를 경고로 알린다. 나머지 다이어그램과 문서 변환은 정상 진행된다 |
+| 브라우저를 띄울 수 없음 | 문서의 모든 다이어그램을 코드블록으로 남기고 경고 1회. 변환 자체는 성공한다 |
+| 원시 HTML `<div class="mermaid">` | 그리지 않는다 — markdown 코드펜스 문법(` ```mermaid `)으로 써야 인식된다 |
+| `--no-mermaid` 지정 | 코드블록으로 남기고 브라우저를 띄우지 않는다 |
+
+**크기**: 다이어그램 하나당 산출물이 대략 15~25KB 커진다(그림의 복잡도에 따라 다르다).
+
+**인쇄**: 다이어그램은 페이지 경계에서 쪼개지지 않고 통째로 다음 페이지로 넘어간다. 지면 폭보다 넓은 다이어그램은 폭에 맞춰 줄어든다.
+
+색·폰트를 문서 테마에 맞추려면 [테마 가이드](THEMING.md)의 mermaid 절을 참조한다.
+
+```bash
+# 다이어그램을 그리지 않고 코드블록으로 남기기
+mdexport design.md --no-mermaid
+```
+
 ## 문서 레이아웃 (opt-in)
 
 아래 옵션은 모두 선택이며, 지정하지 않으면 산출물은 이전과 동일하다(기본 동작 불변). 목차·표지·헤더/푸터는 **생성 요소**로만 추가되고 원문 본문 내용은 그대로 보존된다.
@@ -247,4 +283,5 @@ mdexport 문서.md -f pdf --header --footer --title "월간 보고서"
 | 스타일이 안 먹음 | `--theme` 경로가 실행 위치 기준으로 유효한지 확인 |
 | 표·코드가 페이지 경계에서 잘림 | 요소가 한 페이지보다 크면 불가피 — 내용을 나누거나 테마 폰트 크기를 조정 |
 | PDF 에서 이미지가 안 보임 | 변환 시 경고를 확인한다 — 경로를 못 찾았거나(경로는 입력 파일 기준), 원시 HTML `<img>` 태그를 썼거나(markdown 문법으로 변경), 원격 URL 이거나(볼 때 네트워크 필요), `--no-embed-images` 를 준 경우다. 자세한 규칙은 [이미지](#이미지) 참조 |
+| mermaid 다이어그램이 코드블록으로 나옴 | 변환 시 경고를 확인한다 — 브라우저가 없거나(`npx playwright install chromium`), mermaid 문법 오류이거나, `--no-mermaid` 를 준 경우다. 자세한 규칙은 [mermaid 다이어그램](#mermaid-다이어그램) 참조 |
 | 산출물 용량이 예상보다 큼 | 담긴 이미지·폰트가 텍스트로 들어가기 때문이다 — 이미지는 `--no-embed-images`, 폰트는 CDN 테마로 줄일 수 있다 |

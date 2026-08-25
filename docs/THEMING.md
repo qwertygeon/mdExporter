@@ -11,6 +11,7 @@ mdExporter 의 디자인은 **테마(CSS 한 벌)** 가 결정한다. 내장 기
   - [세 테마 변형](#세-테마-변형)
   - [라이선스](#라이선스)
   - [폰트 자산 재생성](#폰트-자산-재생성)
+- [mermaid 다이어그램 색·폰트](#mermaid-다이어그램-색폰트)
 - [테마가 다루는 요소](#테마가-다루는-요소)
 - [인쇄(PDF) 규칙](#인쇄pdf-규칙)
 - [커스텀 테마 만들기](#커스텀-테마-만들기)
@@ -85,6 +86,26 @@ uv run --with 'fonttools[woff]' --with brotli python scripts/build-fonts.py
 
 원본 Pretendard 가변 폰트를 원격(jsdelivr)에서 내려받아 가변축을 400~800 으로 클립한 뒤 두 코드포인트 집합으로 서브셋을 만들고, 각 결과를 `themes/default.css`·`themes/default-full.css` 의 `@font-face` 블록에 base64 로 주입한다. 재실행해도 동일한 결과를 낸다(멱등).
 
+## mermaid 다이어그램 색·폰트
+
+다이어그램 내부의 색·폰트는 mermaid 가 SVG 안에 직접 넣으므로 일반 CSS 규칙으로는 닿지 않는다. 대신 테마의 `:root` 에 **`--mermaid-` 로 시작하는 변수**를 선언하면 그 값이 mermaid 설정으로 전달된다.
+
+선언하지 않으면 **mermaid 내장 테마**가 그대로 적용된다(기본값). 하나라도 선언하면 mermaid 의 `base` 테마 위에 그 값들이 얹힌다.
+
+```css
+:root {
+  --mermaid-primaryColor: #eff6ff;        /* 도형 배경 */
+  --mermaid-primaryBorderColor: #2563eb;  /* 도형 테두리 */
+  --mermaid-primaryTextColor: #1f2937;    /* 도형 안 글자 */
+  --mermaid-lineColor: #64748b;           /* 연결선 */
+  --mermaid-fontFamily: 'Pretendard Variable', -apple-system, sans-serif;
+}
+```
+
+변수 이름의 `--mermaid-` 뒤 부분이 mermaid 테마 변수 이름 그대로다(대소문자 구분). 쓸 수 있는 이름 전체는 mermaid 의 테마 문서를 참조한다.
+
+`--mermaid-fontFamily` 를 본문 폰트와 맞추면 다이어그램 라벨이 본문과 같은 글꼴로 나온다. 지정하지 않으면 mermaid 기본 글꼴 목록이 쓰이고, 한글은 시스템 폰트로 폴백된다.
+
 ## 테마가 다루는 요소
 
 테마는 도구 기본 스타일에 의존하지 않고 문서 요소를 자체 정의한다:
@@ -96,6 +117,7 @@ uv run --with 'fonttools[woff]' --with brotli python scripts/build-fonts.py
 - 인용 블록 → **콜아웃 카드**(주목 박스) 렌더링
 - 링크·강조·구분선·목록
 - 문서 레이아웃 요소(opt-in): 표지(`.cover`·`.cover-title`·`.cover-date`), 목차(`.toc`·`.toc-l3`) — 페이지 나눔(`break-after`)도 여기서 정의. 커스텀 테마에서 이 클래스를 재정의해 모양을 바꿀 수 있다.
+- mermaid 다이어그램 컨테이너(`figure.mermaid`) — 여백·가운데 정렬·페이지 나눔 회피·폭 제한. 다이어그램 **내부**의 색·폰트는 아래 mermaid 절의 CSS 변수로 정한다.
 
 ## 인쇄(PDF) 규칙
 
@@ -104,6 +126,7 @@ uv run --with 'fonttools[woff]' --with brotli python scripts/build-fonts.py
 - 본문 크기를 인쇄에 맞게 축소
 - 헤딩이 페이지 끝에 홀로 남지 않도록 처리
 - 표·코드 블록·콜아웃이 페이지 경계에서 잘리지 않게 처리(한 페이지 초과 요소는 예외)
+- mermaid 다이어그램이 페이지 경계에서 쪼개지지 않게 처리하고 지면 폭에 맞춰 축소
 
 배경색(표 헤더·콜아웃·코드 박스)이 PDF 에 나오려면 배경 인쇄가 켜져 있어야 하며, 이는 도구가 기본으로 처리한다.
 

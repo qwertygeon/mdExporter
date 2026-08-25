@@ -8,7 +8,7 @@ import { createRenderer } from '../src/renderer.js';
 import { resolveTheme } from '../src/theme.js';
 import { tocStage } from '../src/layout.js';
 import type { Browser } from 'playwright';
-import type { PdfOptions, Renderer } from '../src/types.js';
+import type { DiagramRenderRequest, PdfOptions, Renderer } from '../src/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = join(here, 'fixtures', 'sample.md');
@@ -989,5 +989,266 @@ describe('이미지 자산 해석 단위 (v0.3.1 001)', () => {
     const scan = parser.scanImages!('![a](a.png)\n\n<img src="b.png" width="300">\n\n![c](https://h/c.png)\n');
     expect(scan.refs).toEqual(['a.png', 'https://h/c.png']);
     expect(scan.rawHtmlImages).toBe(1);
+  });
+});
+
+describe('mermaid 다이어그램 (v0.3.1 002)', () => {
+  /** console.warn 을 가로채 경고 발생을 단언할 수 있게 한다. */
+  function captureWarnings() {
+    const messages: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => {
+      messages.push(args.map(String).join(' '));
+    };
+    return { messages, restore: () => { console.warn = original; } };
+  }
+
+  /**
+   * 브라우저 없이 다이어그램 렌더를 흉내내는 fake 렌더러.
+   * `plan` 으로 요청 인덱스별 결과(SVG 문자열 / 실패 메시지)를 지정한다.
+   */
+  function diagramRenderer(
+    plan: { fail?: number[]; unavailable?: string } = {},
+  ) {
+    const docs: string[] = [];
+    const requests: DiagramRenderRequest[] = [];
+    const renderer: Renderer = {
+      html: async (doc) => { docs.push(doc); },
+      pdf: async (doc) => { docs.push(doc); },
+      renderDiagrams: async (request) => {
+        requests.push(request);
+        if (plan.unavailable) {
+          return { svgs: request.sources.map(() => undefined), failures: [], unavailable: plan.unavailable };
+        }
+        const failed = new Set(plan.fail ?? []);
+        const failures: Array<{ index: number; message: string }> = [];
+        const svgs = request.sources.map((_source, i) => {
+          if (!failed.has(i)) return `<svg id="mdx-diagram-${i}" data-n="${i}"></svg>`;
+          failures.push({ index: i, message: `Parse error on line 3:\n  ...\n  ^ (fake ${i})` });
+          return undefined;
+        });
+        return { svgs, failures };
+      },
+    };
+    return { renderer, docs, requests };
+  }
+
+  /** markdown 본문을 임시 파일로 써서 경로를 돌려준다. */
+  function makeDoc(body: string): { dir: string; doc: string } {
+    const dir = join(tmpdir(), `mdx-mmd-${process.pid}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    const doc = join(dir, 'doc.md');
+    writeFileSync(doc, body, 'utf8');
+    return { dir, doc };
+  }
+
+  const FLOWCHART = '```mermaid\nflowchart TD\n  A[시작] --> B[끝]\n```\n';
+  const SEQUENCE = '```mermaid\nsequenceDiagram\n  갑->>을: 요청\n```\n';
+
+  it('SC-1: flowchart 펜스를 SVG 로 치환한다', async () => {
+    const { dir, doc } = makeDoc(`# 제목\n\n${FLOWCHART}`);
+    try {
+      const { renderer, docs } = diagramRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(docs[0]).toContain('<figure class="mermaid"><svg');
+      expect(docs[0]).not.toContain('class="language-mermaid"');
+      expect(docs[0]).not.toContain('flowchart TD');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-2: sequenceDiagram 펜스도 같은 경로로 렌더된다', async () => {
+    const { dir, doc } = makeDoc(SEQUENCE);
+    try {
+      const { renderer, docs, requests } = diagramRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(requests[0].sources[0]).toContain('sequenceDiagram');
+      expect(docs[0]).toContain('<figure class="mermaid"><svg');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-3: 다이어그램이 여러 개면 등장 순서대로 각각 치환한다 (같은 소스 반복 포함)', async () => {
+    const { dir, doc } = makeDoc(`${FLOWCHART}\n${SEQUENCE}\n${FLOWCHART}`);
+    try {
+      const { renderer, docs, requests } = diagramRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(requests[0].sources.length).toBe(3);
+      // 같은 소스가 두 번 나와도 자리마다 고유 SVG — 문서 안에서 element id 가 겹치지 않는다.
+      expect(docs[0]).toContain('data-n="0"');
+      expect(docs[0]).toContain('data-n="1"');
+      expect(docs[0]).toContain('data-n="2"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-4: 렌더 실패한 다이어그램만 코드블록으로 남기고 경고한다', async () => {
+    const { dir, doc } = makeDoc(`${FLOWCHART}\n${SEQUENCE}`);
+    const warnings = captureWarnings();
+    try {
+      const { renderer, docs } = diagramRenderer({ fail: [0] });
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(docs[0]).toContain('class="language-mermaid"'); // 실패한 첫 번째
+      expect(docs[0]).toContain('data-n="1"'); // 성공한 두 번째
+      expect(warnings.messages.join('\n')).toMatch(/1번째 다이어그램/);
+      // 여러 줄 파서 오류를 한 줄로 접어 보고한다.
+      expect(warnings.messages.some((m) => m.includes('\n'))).toBe(false);
+    } finally {
+      warnings.restore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-5: --no-mermaid 면 코드블록으로 남기고 렌더러를 부르지 않는다', async () => {
+    const { dir, doc } = makeDoc(FLOWCHART);
+    try {
+      const { renderer, docs, requests } = diagramRenderer();
+      await convert({ input: doc, formats: ['html'], mermaid: false }, { renderer });
+      expect(requests.length).toBe(0);
+      expect(docs[0]).toContain('class="language-mermaid"');
+      expect(docs[0]).toContain('flowchart TD');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-6: mermaid 펜스가 없으면 렌더러를 부르지 않는다 (브라우저 미기동)', async () => {
+    const { dir, doc } = makeDoc('# 제목\n\n```ts\nconst a = 1;\n```\n');
+    try {
+      const { renderer, docs, requests } = diagramRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(requests.length).toBe(0);
+      expect(docs[0]).toContain('class="language-ts"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-7: 브라우저를 띄울 수 없으면 전량 코드블록 + 경고 1회, 변환은 성공한다', async () => {
+    const { dir, doc } = makeDoc(`${FLOWCHART}\n${SEQUENCE}`);
+    const warnings = captureWarnings();
+    try {
+      const { renderer, docs } = diagramRenderer({ unavailable: "Executable doesn't exist at /x" });
+      const out = await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(out.length).toBe(1);
+      expect(docs[0]).toContain('class="language-mermaid"');
+      expect(docs[0]).not.toContain('<svg');
+      const browserWarnings = warnings.messages.filter((m) => m.includes('브라우저를 띄울 수 없어'));
+      expect(browserWarnings.length).toBe(1);
+      expect(browserWarnings[0]).toContain('playwright install chromium');
+    } finally {
+      warnings.restore();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('SC-10: 다이어그램 밖 본문 텍스트는 변환 전후 동일하다 (내용 불변)', async () => {
+    const body = `# 설계\n\n앞 문단입니다.\n\n${FLOWCHART}\n\n뒤 문단입니다.\n`;
+    const { dir, doc } = makeDoc(body);
+    try {
+      const { renderer, docs } = diagramRenderer();
+      await convert({ input: doc, formats: ['html'] }, { renderer });
+      const outsideFence = body.replace(/```mermaid[\s\S]*?```/g, '');
+      const words = outsideFence.match(/[가-힣A-Za-z0-9]+/g) ?? [];
+      for (const word of words) expect(docs[0]).toContain(word);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('renderDiagrams 가 없는 렌더러도 그대로 동작한다 (하위호환 회귀 가드)', async () => {
+    const { dir, doc } = makeDoc(FLOWCHART);
+    try {
+      const { renderer, docs } = captureRenderer();
+      const out = await convert({ input: doc, formats: ['html'] }, { renderer });
+      expect(out.length).toBe(1);
+      expect(docs[0]).toContain('class="language-mermaid"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('렌더 페이지에 최종 문서와 같은 테마 CSS 를 전달한다 (폰트 실측 일치)', async () => {
+    const { dir, doc } = makeDoc(FLOWCHART);
+    try {
+      const { renderer, requests } = diagramRenderer();
+      const theme = join(here, 'fixtures', 'custom.css');
+      await convert({ input: doc, formats: ['html'], theme }, { renderer });
+      expect(requests[0].themeCss).toContain('CUSTOM-THEME-MARKER');
+      expect(requests[0].bundlePath).toMatch(/vendor[/\\]mermaid[/\\]mermaid\.min\.js$/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('다이어그램 단위 (v0.3.1 002)', () => {
+  it('SC-8: 테마의 --mermaid-* 변수를 mermaid 설정으로 옮긴다', async () => {
+    const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
+    expect(mermaidConfigFromTheme(':root { --ink: #111; }')).toEqual({});
+    expect(mermaidConfigFromTheme('body { color: red; }')).toEqual({});
+    expect(
+      mermaidConfigFromTheme(':root {\n  --ink: #111;\n  --mermaid-primaryColor: #eff6ff;\n  --mermaid-lineColor: #64748b;\n}'),
+    ).toEqual({
+      theme: 'base',
+      themeVariables: { primaryColor: '#eff6ff', lineColor: '#64748b' },
+    });
+  });
+
+  it('SC-8: 값에 콜론·쉼표가 있어도 세미콜론까지를 값으로 읽는다', async () => {
+    const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
+    const config = mermaidConfigFromTheme(
+      ":root { --mermaid-fontFamily: 'Pretendard Variable', -apple-system, sans-serif; }",
+    );
+    expect(config).toEqual({
+      theme: 'base',
+      themeVariables: { fontFamily: "'Pretendard Variable', -apple-system, sans-serif" },
+    });
+  });
+
+  it('폰트 base64 처럼 중괄호를 품은 규칙이 있어도 :root 만 읽는다', async () => {
+    const { mermaidConfigFromTheme } = await import('../src/diagrams.js');
+    const css = '@font-face { src: url(data:font/woff2;base64,AAA{BBB); }\n:root { --mermaid-lineColor: #000; }';
+    expect(mermaidConfigFromTheme(css)).toEqual({
+      theme: 'base',
+      themeVariables: { lineColor: '#000' },
+    });
+  });
+
+  it('scanDiagrams: mermaid 펜스만 등장 순서로 모은다', async () => {
+    const { createParser } = await import('../src/parser.js');
+    const parser = createParser();
+    const scan = parser.scanDiagrams!(
+      '```ts\nconst a = 1;\n```\n\n```mermaid\nflowchart TD\n```\n\n```MERMAID extra\nsequenceDiagram\n```\n\n```\nplain\n```\n',
+    );
+    expect(scan.sources).toEqual(['flowchart TD\n', 'sequenceDiagram\n']);
+  });
+
+  it('목록·인용 안에 중첩된 mermaid 펜스도 등장 순서대로 조사·치환된다', async () => {
+    const { createParser } = await import('../src/parser.js');
+    const parser = createParser();
+    const md =
+      '- 항목\n\n  ```mermaid\n  flowchart TD\n  ```\n\n> 인용\n>\n> ```mermaid\n> sequenceDiagram\n> ```\n\n```mermaid\nflowchart LR\n```\n';
+    const scan = parser.scanDiagrams!(md);
+    expect(scan.sources).toEqual(['flowchart TD\n', 'sequenceDiagram\n', 'flowchart LR\n']);
+    const html = parser.render(
+      md,
+      undefined,
+      scan.sources.map((source, i) => `<svg data-n="${i}">${source.trim()}</svg>`),
+    );
+    // 조사 순서와 치환 순서가 어긋나면 자리가 뒤바뀐다.
+    expect(html).toMatch(
+      /data-n="0">flowchart TD[\s\S]*data-n="1">sequenceDiagram[\s\S]*data-n="2">flowchart LR/,
+    );
+  });
+
+  it('vendor 번들이 배포 대상 경로에 존재한다', async () => {
+    const { resolveMermaidBundle } = await import('../src/diagrams.js');
+    const bundlePath = await resolveMermaidBundle();
+    expect(bundlePath).toBeDefined();
+    expect(existsSync(bundlePath!)).toBe(true);
   });
 });

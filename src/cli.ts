@@ -17,6 +17,8 @@ interface CliOptions {
   recursive?: boolean;
   /** commander 의 `--no-embed-images` 대응 — 플래그 미지정 시 true. */
   embedImages: boolean;
+  /** commander 의 `--no-mermaid` 대응 — 플래그 미지정 시 true. */
+  mermaid: boolean;
 }
 
 function resolveFormats(format: string): OutputFormat[] {
@@ -43,6 +45,7 @@ program
   .option('--footer', 'PDF footer with page numbers')
   .option('-r, --recursive', 'recurse into subdirectories of directory inputs (skips dotfiles/node_modules)')
   .option('--no-embed-images', 'keep original image paths instead of inlining local images (smaller output; PDF loses them)')
+  .option('--no-mermaid', 'leave ```mermaid fences as code blocks instead of rendering them as diagrams')
   .action(async (inputs: string[], opts: CliOptions) => {
     const formats: OutputFormat[] = resolveFormats(opts.format);
     let tocDepth: number | undefined;
@@ -64,6 +67,7 @@ program
       footer: opts.footer,
       recursive: opts.recursive,
       embedImages: opts.embedImages,
+      mermaid: opts.mermaid,
     });
     for (const out of outputs) console.log(`✓ ${out}`);
   });
