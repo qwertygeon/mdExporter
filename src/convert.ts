@@ -123,7 +123,7 @@ async function resolveDiagramAssets(
     sources,
     bundlePath,
     themeCss,
-    config: mermaidConfigFromTheme(themeCss),
+    config: mermaidConfigFromTheme(themeCss, warn),
   });
   if (result.unavailable) {
     warn(

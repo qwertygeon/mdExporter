@@ -130,6 +130,30 @@ uv run --with 'fonttools[woff]' --with brotli python scripts/build-fonts.py
 
 숫자와 `true`/`false` 는 그대로 숫자·참거짓으로 전달된다. 단위가 붙은 값(`13px`)·색·글꼴 목록은 문자열로 전달된다.
 
+**부모·자식 경로가 겹치면 경고한다.** 예를 들어 다음 선언은 `flowchart` 전체 값과 그 아래 `nodeSpacing`을 함께 지정한다.
+
+```css
+:root {
+  --mermaid-config-flowchart: false;
+  --mermaid-config-flowchart-nodeSpacing: 30;
+}
+```
+
+뒤의 자식 선언이 부모 값을 객체로 바꾸므로 최종 설정은 `flowchart: { nodeSpacing: 30 }`이다. 순서를 뒤집으면 부모 값 `flowchart: false`가 자식 설정을 대체한다. 여러 `:root` 블록도 등장 순서대로 처리한다. 경고에는 대체되는 선언과 적용되는 선언을 `기존 선언 → 적용 선언` 순서로 표시한다. 부모 전체 값 대신 필요한 자식 경로들을 각각 선언하면 이런 충돌을 피할 수 있다.
+
+테마 변수의 두 표기가 겹칠 때는 **짧은 표기가 선언 순서와 관계없이 우선**한다.
+
+```css
+:root {
+  --mermaid-fontSize: 13px;
+  --mermaid-config-themeVariables-fontSize: 20px;
+}
+```
+
+이 경우 `fontSize`는 `13px`로 적용되며, 두 선언의 값이 달라 경고한다. 두 표기의 값이 같거나 같은 CSS 변수만 다시 선언한 경우, 서로 독립된 키 또는 CSS 주석 안의 선언은 경고 대상에서 제외된다. `themeVariables` 부모 전체 값이나 자식 객체가 짧은 표기로 대체될 때도 경고한다.
+
+충돌 경고는 Mermaid 렌더를 위한 테마 설정 해석 시 표준 오류에 출력된다. 입력 문서 경로와 선언명을 표시하고 설정값 원문은 표시하지 않는다. 기존 설정 우선순위대로 변환을 계속한다. `--no-mermaid`를 쓰거나 문서에 Mermaid 코드펜스가 없으면 설정을 해석하지 않아 이 경고도 출력되지 않는다.
+
 ### 기본 테마가 정해둔 크기
 
 동봉 테마는 다이어그램 글자를 **13px**, 흐름도 노드 간격을 좁혀 선언한다. mermaid 기본 글자 16px 은 인쇄 본문(10.5pt)보다 커서 도형이 과하게 부푸는데, 이 값이면 본문과 균형이 맞고 10단계 규모 흐름도가 제목과 같은 지면에 들어간다. 크기를 되돌리려면 해당 선언을 지우거나 값을 바꾼다.

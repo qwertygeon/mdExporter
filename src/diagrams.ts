@@ -45,15 +45,34 @@ export async function resolveMermaidBundle(): Promise<string | undefined> {
  * 테마가 `--mermaid-config-theme: base` 를 함께 선언한다. 크기 변수(`fontSize`)는
  * 내장 테마에서도 그대로 반영된다.
  */
-export function mermaidConfigFromTheme(themeCss: string): Record<string, unknown> {
+export function mermaidConfigFromTheme(
+  themeCss: string,
+  warn: (message: string) => void = (message) => console.warn(`경고: ${message}`),
+): Record<string, unknown> {
   const config: Record<string, unknown> = {};
   const themeVariables: Record<string, unknown> = {};
+  const origins = new Map<string, { name: string; value: unknown }>();
+
+  function record(path: string[], name: string, value: unknown, alias = false): void {
+    const key = path.join('.');
+    for (const [previousPath, previous] of origins) {
+      const overlap = previousPath.startsWith(`${key}.`) || key.startsWith(`${previousPath}.`);
+      if (overlap || (alias && previousPath === key && previous.value !== value)) {
+        warn(`mermaid 테마 설정 충돌: ${previous.name} → ${name} (기존 설정을 대체합니다).`);
+        origins.delete(previousPath);
+      }
+    }
+    origins.set(key, { name, value });
+  }
 
   for (const block of rootBlocks(stripComments(themeCss))) {
     for (const [name, raw] of declarations(block)) {
       // config 접두사를 테마 변수보다 먼저 본다 — 접두사가 서로 포함 관계라 순서가 의미를 가른다.
       if (name.startsWith(CONFIG_PREFIX)) {
-        assignPath(config, name.slice(CONFIG_PREFIX.length).split('-'), coerce(raw));
+        const path = name.slice(CONFIG_PREFIX.length).split('-');
+        const value = coerce(raw);
+        record(path, name, value);
+        assignPath(config, path, value);
       } else if (name.startsWith(THEME_VAR_PREFIX)) {
         themeVariables[name.slice(THEME_VAR_PREFIX.length)] = coerce(raw);
       }
@@ -61,6 +80,10 @@ export function mermaidConfigFromTheme(themeCss: string): Record<string, unknown
   }
 
   if (Object.keys(themeVariables).length > 0) {
+    // 짧은 표기는 최종 병합에서 우선하므로 CSS 등장 순서와 분리해 충돌을 확인한다.
+    for (const [key, value] of Object.entries(themeVariables)) {
+      record(['themeVariables', key], `${THEME_VAR_PREFIX}${key}`, value, true);
+    }
     // 두 표기가 같은 자리를 가리킬 수 있다(`--mermaid-config-themeVariables-*`) — 덮어쓰지 않고 합친다.
     const viaConfig = config.themeVariables;
     config.themeVariables =
